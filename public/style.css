@@ -206,3 +206,37 @@ input:focus{border-color:var(--spotlight);box-shadow:0 0 0 3px rgba(255,201,77,.
 /* ---- Calque anti-manipulation du lecteur (non-animateurs) ---- */
 /* z-index 4 : au-dessus de l'iframe, mais SOUS le volume (6) et le compte a rebours (5) */
 .click-block{position:absolute;inset:0;z-index:4;background:transparent;cursor:default;}
+
+/* ---- Accueil : separateur "ou" ---- */
+.hr{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:13px;margin:18px 0;}
+.hr::before,.hr::after{content:"";flex:1;height:1px;background:var(--line);}
+
+/* ---- Banniere code d'invitation ---- */
+.invite-card{text-align:center;}
+.invite-label{font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted);}
+.invite-code{font-family:var(--display);font-weight:700;font-size:46px;letter-spacing:8px;
+  color:var(--spotlight);margin:6px 0 0;text-shadow:0 0 24px rgba(255,201,77,.35);}
+
+/* ---- Zone reponse (fenetre de 5 s) ---- */
+.answer-zone{max-width:680px;margin:22px auto 0;}
+.answer-zone input{margin-top:4px;font-size:18px;}
+
+/* ---- Revelation : liste des buzz ---- */
+.reveal{max-width:680px;margin:22px auto 0;}
+.reveal h3{font-family:var(--display);text-align:center;font-size:20px;margin:0 0 16px;}
+.buzz-list{display:flex;flex-direction:column;gap:10px;}
+.buzz-row{display:flex;align-items:center;gap:12px;background:var(--stage-deep);
+  border:1px solid var(--line);border-radius:14px;padding:12px 14px;}
+.buzz-row.win{border-color:var(--go);box-shadow:0 0 0 1px var(--go), 0 0 22px -6px var(--go);}
+.buzz-row.mine{outline:1px dashed var(--spotlight);}
+.buzz-row .rk{font-family:var(--display);font-weight:700;font-size:20px;color:var(--spotlight);width:26px;text-align:center;}
+.buzz-row .info{flex:1;min-width:0;}
+.buzz-row .who{font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.buzz-row .dt{font-family:var(--body);font-size:12px;color:var(--muted);font-weight:600;}
+.buzz-row .ans{color:var(--ink);opacity:.92;font-size:14px;margin-top:2px;word-break:break-word;}
+.buzz-row .ans.empty{color:var(--muted);font-style:italic;opacity:.7;}
+.buzz-row .votes{font-size:12px;color:var(--muted);margin-left:6px;}
+.buzz-row .vote-btn{flex:0 0 auto;border:0;border-radius:10px;padding:9px 14px;cursor:pointer;
+  background:var(--spotlight);color:#1a1033;font-weight:600;font-family:var(--body);font-size:14px;}
+.buzz-row .vote-btn:disabled{opacity:.4;cursor:default;}
+.buzz-row .crown{color:var(--go);font-weight:700;}

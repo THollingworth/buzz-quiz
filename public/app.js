@@ -9,8 +9,15 @@ const show = (id, on) => $(id).classList.toggle("hidden", !on);
 
 /* ---------- Identite / etat ---------- */
 let myId = null, myRole = null, myName = "", myRoom = "";
-let pendingAdminPwd = null;
+let autoJoinRoom = null;
 let state = null;
+
+// lien d'invitation : ?room=CODE -> rejoindre automatiquement
+(function () {
+  const p = new URLSearchParams(location.search);
+  const r = (p.get("room") || "").toUpperCase().trim();
+  if (r) autoJoinRoom = r;
+})();
 
 /* ---------- WebSocket ---------- */
 let ws = null, reconnectTimer = null;
@@ -19,8 +26,8 @@ function connect() {
   ws = new WebSocket(wsURL());
   ws.addEventListener("open", () => {
     setBadge();
-    if (myRole === "admin" && pendingAdminPwd) sendMsg({ type: "admin", room: myRoom, name: myName, password: pendingAdminPwd });
-    else if (myRole === "player") sendMsg({ type: "join", room: myRoom, name: myName });
+    if (myRoom && myRole) sendMsg({ type: "rejoin", room: myRoom, name: myName, wasAdmin: myRole === "admin" });
+    else if (autoJoinRoom) { const r = autoJoinRoom; autoJoinRoom = null; myRole = "player"; sendMsg({ type: "join", room: r }); }
   });
   ws.addEventListener("message", (e) => { let m; try { m = JSON.parse(e.data); } catch { return; } handleServer(m); });
   ws.addEventListener("close", () => { setBadge("Reconnexion…"); clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connect, 1500); });
@@ -30,11 +37,10 @@ function sendMsg(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
 
 function handleServer(m) {
   if (m.type === "welcome") { myId = m.id; return; }
-  if (m.type === "admin_result") {
-    if (m.ok) { myRole = "admin"; if (m.id) myId = m.id; $("adminErr").style.display = "none"; }
-    else { $("adminErr").style.display = "block"; pendingAdminPwd = null; }
-    return;
-  }
+  if (m.type === "created") { myRole = "admin"; myRoom = m.room; if (m.id) myId = m.id; ytFrameId = null; return; }
+  if (m.type === "joined") { myRole = "player"; myRoom = m.room; if (m.id) myId = m.id; return; }
+  if (m.type === "join_error") { $("joinErr").style.display = "block"; myRole = null; return; }
+  if (m.type === "promoted") { myRole = "admin"; ytFrameId = null; toast("Tu es maintenant l'animateur 🎬"); return; }
   if (m.type === "notice") { toast(m.text); return; }
   if (m.type === "sync") { onSync(m); return; }
   if (m.type === "state") { state = m; onState(); return; }
@@ -143,41 +149,53 @@ setInterval(() => { // non-animateur : reconciliation
 /* ============================================================
    Actions UI
    ============================================================ */
+$("createBtn").onclick = () => { myRole = "admin"; sendMsg({ type: "create" }); setBadge(); };
 $("joinBtn").onclick = () => {
-  const name = $("pseudo").value.trim();
-  if (!name) { $("pseudo").focus(); return; }
-  myName = name; myRole = "player"; myRoom = $("room").value.trim().toUpperCase() || "PARTY";
-  sendMsg({ type: "join", room: myRoom, name: myName }); setBadge();
+  const code = $("room").value.trim().toUpperCase();
+  if (!code) { $("room").focus(); return; }
+  $("joinErr").style.display = "none";
+  myRole = "player"; sendMsg({ type: "join", room: code }); setBadge();
 };
-$("adminBtn").onclick = () => {
-  const name = $("pseudo").value.trim();
-  if (!name) { $("pseudo").focus(); toast("Choisis d'abord un pseudo en haut."); return; }
-  const pwd = $("adminPwd").value; if (!pwd) return;
-  myName = name; myRoom = $("room").value.trim().toUpperCase() || "PARTY"; pendingAdminPwd = pwd;
-  sendMsg({ type: "admin", room: myRoom, name: myName, password: pwd });
-};
-$("adminPwd").addEventListener("keydown", (e) => { if (e.key === "Enter") $("adminBtn").click(); });
-$("pseudo").addEventListener("keydown", (e) => { if (e.key === "Enter") $("joinBtn").click(); });
+$("room").addEventListener("keydown", (e) => { if (e.key === "Enter") $("joinBtn").click(); });
 
 $("readyBtn").onclick = () => sendMsg({ type: "ready" });
 $("specBtn").onclick = () => { const me = meEntry(); sendMsg({ type: "spectator", value: !(me && me.spectator) }); };
-$("voteGo").onclick = () => sendMsg({ type: "vote", value: "go" });
-$("voteNo").onclick = () => sendMsg({ type: "vote", value: "no" });
+
+// reponse ecrite pendant la fenetre de buzz
+let answerTimer = null;
+$("answerInput").addEventListener("input", () => {
+  clearTimeout(answerTimer);
+  answerTimer = setTimeout(() => sendMsg({ type: "answer", text: $("answerInput").value }), 200);
+});
+
+// pseudo optionnel (renommage)
+function sendRename() { const v = $("nameInput").value.trim(); if (v && v !== myName) sendMsg({ type: "rename", name: v }); }
+$("nameInput").addEventListener("change", sendRename);
+$("nameInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { sendRename(); $("nameInput").blur(); } });
+
+// copie code / lien
+function inviteLink() { return location.origin + location.pathname + "?room=" + myRoom; }
+function copyText(txt, btn, label) {
+  const done = () => { const o = btn.textContent; btn.textContent = "Copié ✓"; setTimeout(() => (btn.textContent = label || o), 1400); };
+  if (navigator.clipboard) navigator.clipboard.writeText(txt).then(done).catch(done); else done();
+}
+$("copyCode").onclick = (e) => copyText(myRoom, e.target, "Copier le code");
+$("copyLink").onclick = (e) => copyText(inviteLink(), e.target, "Copier le lien");
 
 function meEntry() { return state ? state.players.find((p) => p.id === myId) : null; }
 
 function doBuzz() {
-  if (!state || state.phase !== "playing") return;
+  if (!state || (state.phase !== "playing" && state.phase !== "collecting")) return;
   const me = meEntry();
   if (me && me.spectator) return;
-  if (state.lastBuzzerName && myName === state.lastBuzzerName) { toast("Attends qu'un autre joueur buzze."); return; }
+  if (state.buzzes && state.buzzes.some((b) => b.id === myId)) return; // deja dans la liste
   $("buzzer").classList.add("pressed"); setTimeout(() => $("buzzer").classList.remove("pressed"), 150);
   sendMsg({ type: "buzz" });
 }
 $("buzzer").onclick = doBuzz;
 document.addEventListener("keydown", (e) => {
   if (e.code === "Space" && myRole && document.activeElement.tagName !== "INPUT") {
-    e.preventDefault(); if (state && state.phase === "playing") doBuzz();
+    e.preventDefault(); if (state && (state.phase === "playing" || state.phase === "collecting")) doBuzz();
   }
 });
 
@@ -199,9 +217,10 @@ function renderAdminModal() {
   const box = $("adminActions"); box.innerHTML = "";
   const ph = state.phase;
   if (ph === "lobby") box.appendChild(adminBtnEl("Lancer la partie", "", "start", !state.videoId));
-  if (ph === "voting") box.appendChild(adminBtnEl("Clôturer le vote", "", "closeVote"));
-  if (ph === "result") box.appendChild(adminBtnEl("Reprendre maintenant ▶", "", "continue"));
-  if (ph !== "lobby") box.appendChild(adminBtnEl("Revenir à la file d'attente", "ghost", "resetLobby"));
+  if (ph === "playing" || ph === "collecting") box.appendChild(adminBtnEl("🎯 Révélation", "", "reveal", !(state.buzzes && state.buzzes.length)));
+  if (ph === "reveal" && !state.revealDecided) box.appendChild(adminBtnEl("Clôturer le vote", "", "closeReveal"));
+  if (ph === "reveal" && state.revealDecided) box.appendChild(adminBtnEl("Manche suivante ▶", "", "continue"));
+  if (ph !== "lobby") box.appendChild(adminBtnEl("Revenir à la file", "ghost", "resetLobby"));
   box.appendChild(adminBtnEl("Réinitialiser les scores", "ghost", "resetScores"));
 }
 
@@ -229,8 +248,9 @@ function renderScores(el) {
 }
 
 function onState() {
+  const me0 = meEntry(); if (me0) myName = me0.name;
   setBadge();
-  const inGame = ["playing", "buzzed", "voting", "result"].includes(state.phase);
+  const inGame = ["playing", "collecting", "reveal"].includes(state.phase);
   show("home", myRole === null);
   show("lobby", myRole !== null && !inGame);
   show("game", myRole !== null && inGame);
@@ -241,6 +261,8 @@ function onState() {
 }
 
 function renderLobby() {
+  $("inviteCode").textContent = myRoom || "----";
+  if (document.activeElement !== $("nameInput")) $("nameInput").value = myName;
   const list = $("playerList"); list.innerHTML = "";
   const activeP = state.players.filter((p) => !p.spectator);
   $("totalCount").textContent = activeP.length;
@@ -272,67 +294,105 @@ function renderGame() {
   const s = state;
   const me = meEntry();
   const spec = me && me.spectator;
-  const isBuzzer = s.buzz && s.buzz.id === myId;
+  const buzzes = s.buzzes || [];
+  const iBuzzed = buzzes.some((b) => b.id === myId);
 
   show("volCtrl", !!s.videoId);
   show("clickBlock", !isAdmin() && !!s.videoId);
 
-  if (s.phase === "buzzed") { show("overlay", true); $("overlayWho").textContent = (s.buzz ? s.buzz.name : "") + " a buzzé !"; startCountdownLoop(); }
-  else { show("overlay", false); stopCountdownLoop(); }
+  // overlay = compte a rebours pendant la collecte
+  if (s.phase === "collecting") {
+    show("overlay", true);
+    $("overlayWho").textContent = buzzes.length + (buzzes.length > 1 ? " joueurs ont buzzé" : " joueur a buzzé");
+    startCountdownLoop();
+  } else { show("overlay", false); stopCountdownLoop(); }
 
-  show("buzzZone", s.phase === "playing" || s.phase === "buzzed");
-  show("voteZone", s.phase === "voting");
-  show("resultZone", s.phase === "result");
+  // zones
+  const showBuzzer = (s.phase === "playing") || (s.phase === "collecting" && !iBuzzed);
+  show("buzzZone", showBuzzer);
+  show("answerZone", s.phase === "collecting" && iBuzzed && !spec);
+  show("revealZone", s.phase === "reveal");
 
+  // buzzer
   const buzzer = $("buzzer");
-  const lockedDouble = s.lastBuzzerName && myName === s.lastBuzzerName;
-  if (s.phase === "playing") {
+  if (showBuzzer) {
     buzzer.textContent = "BUZZ";
-    buzzer.disabled = spec || lockedDouble;
+    buzzer.disabled = spec;
     $("buzzHint").innerHTML = spec ? "Mode spectateur — tu ne buzzes pas."
-      : lockedDouble ? "Tu viens de buzzer : attends qu'un autre joueur buzze."
+      : s.phase === "collecting" ? "Buzze pour répondre toi aussi !"
       : 'Appuie dès que tu connais la réponse — touche <kbd>Espace</kbd>';
-  } else if (s.phase === "buzzed") {
-    buzzer.disabled = true; buzzer.textContent = "…";
-    $("buzzHint").textContent = isBuzzer ? "À toi ! Donne ta réponse à l'oral 🎤" : (s.buzz ? s.buzz.name : "Quelqu'un") + " répond…";
   }
 
-  if (s.phase === "voting") {
-    $("voteResp").textContent = (s.buzz ? s.buzz.name : "") + " a donné sa réponse à l'oral.";
-    const voted = s.votes.some((v) => v.id === myId);
-    const canVote = !isBuzzer && !spec;
-    $("voteGo").disabled = !canVote || voted;
-    $("voteNo").disabled = !canVote || voted;
-    show("votedNote", isBuzzer || spec || voted);
-    $("votedNote").textContent = spec ? "Spectateur — tu ne votes pas." : isBuzzer ? "Tu as buzzé — les autres votent pour toi." : "Vote enregistré. En attente des autres…";
+  // zone reponse
+  if (s.phase === "collecting" && iBuzzed && !spec) {
+    if (document.activeElement !== $("answerInput")) { /* ne pas ecraser la frappe */ }
+  } else if (s.phase !== "collecting") {
+    $("answerInput").value = "";
   }
 
-  if (s.phase === "result") {
-    const r = s.lastResult || { go: 0, no: 0, correct: false, name: null };
-    $("tGo").textContent = r.go; $("tNo").textContent = r.no;
-    const v = $("verdict");
-    if (r.correct) { v.textContent = "Bonne réponse ! +1 pour " + (r.name || "le buzzer") + " 🎉"; v.className = "verdict ok"; }
-    else if (r.no > r.go) { v.textContent = "Raté ❌ — pas de point"; v.className = "verdict ko"; }
-    else { v.textContent = "Pas de point"; v.className = "verdict"; }
-  }
+  // revelation
+  if (s.phase === "reveal") renderReveal(s, spec);
 
   renderScores($("scoreListGame"));
-  $("gameNote").textContent = "Manche " + (s.round || 1) + (s.buzz ? " · Buzz : " + s.buzz.name : "");
+  $("gameNote").textContent = "Manche " + (s.round || 1)
+    + (buzzes.length ? " · " + buzzes.length + " buzz" : "");
 }
 
-/* ---------- Anneau de compte a rebours ---------- */
+function renderReveal(s, spec) {
+  const buzzes = s.buzzes || [];
+  const myVote = (s.revealVotes.find((v) => v.voter === myId) || {}).cand;
+  const t0 = buzzes.length ? buzzes[0].at : 0;
+  const voteCount = {};
+  s.revealVotes.forEach((v) => { voteCount[v.cand] = (voteCount[v.cand] || 0) + 1; });
+
+  $("revealTitle").textContent = s.revealDecided
+    ? (s.lastWinner ? "🏆 " + s.lastWinner.name + " gagne la manche ! (+1)" : "Manche terminée")
+    : "Révélation — votez pour le gagnant";
+
+  const list = $("buzzList"); list.innerHTML = "";
+  buzzes.forEach((b, i) => {
+    const row = document.createElement("div");
+    const isWin = s.revealDecided && s.lastWinner && s.lastWinner.id === b.id;
+    row.className = "buzz-row" + (isWin ? " win" : "") + (b.id === myId ? " mine" : "");
+    const dt = i === 0 ? "+0 ms" : "+" + (b.at - t0) + " ms";
+    const ans = b.answer ? '<div class="ans">' + escapeHtml(b.answer) + "</div>"
+      : '<div class="ans empty">(pas de réponse)</div>';
+    const vc = voteCount[b.id] ? '<span class="votes">' + voteCount[b.id] + " vote" + (voteCount[b.id] > 1 ? "s" : "") + "</span>" : "";
+    const crown = isWin ? ' <span class="crown">🏆</span>' : "";
+    const canVote = !s.revealDecided && !spec;
+    const btn = canVote
+      ? '<button class="vote-btn" data-id="' + b.id + '"' + (myVote === b.id ? " disabled" : "") + '>'
+        + (myVote === b.id ? "Voté ✓" : "Voter") + "</button>"
+      : "";
+    row.innerHTML = '<div class="rk">' + (i + 1) + '</div>'
+      + '<div class="info"><div class="who">' + escapeHtml(b.name) + crown
+      + ' <span class="dt">' + dt + "</span>" + vc + "</div>" + ans + "</div>" + btn;
+    list.appendChild(row);
+  });
+  list.querySelectorAll(".vote-btn").forEach((btn) => {
+    btn.onclick = () => sendMsg({ type: "voteWinner", candidateId: btn.getAttribute("data-id") });
+  });
+
+  const note = $("revealNote");
+  if (spec) { show("revealNote", true); note.textContent = "Spectateur — tu ne votes pas."; }
+  else if (!s.revealDecided && myVote) { show("revealNote", true); note.textContent = "Vote enregistré. En attente des autres…"; }
+  else show("revealNote", false);
+}
+
+/* ---------- Anneau de compte a rebours (collecte) ---------- */
 const CIRC = 2 * Math.PI * 56;
-let rafId = null, localEnd = 0, lastBuzzAt = 0;
+let rafId = null, localEnd = 0, collectActive = false;
 function startCountdownLoop() {
-  if (state.buzz && state.buzz.at !== lastBuzzAt) { lastBuzzAt = state.buzz.at; localEnd = Date.now() + (state.countdownRemaining || COUNTDOWN_MS); }
+  if (!collectActive) { collectActive = true; localEnd = Date.now() + (state.collectRemaining || COUNTDOWN_MS); }
   if (rafId) return; tickCountdown();
 }
-function stopCountdownLoop() { if (rafId) { cancelAnimationFrame(rafId); rafId = null; } }
+function stopCountdownLoop() { collectActive = false; if (rafId) { cancelAnimationFrame(rafId); rafId = null; } }
 function tickCountdown() {
-  if (!state || state.phase !== "buzzed") { stopCountdownLoop(); return; }
+  if (!state || state.phase !== "collecting") { stopCountdownLoop(); return; }
   const remain = Math.max(0, localEnd - Date.now());
   $("ringNum").textContent = Math.ceil(remain / 1000);
   $("ringProg").style.strokeDashoffset = (CIRC * (1 - remain / COUNTDOWN_MS)).toFixed(1);
+  $("answerTimer").textContent = "(" + Math.ceil(remain / 1000) + " s)";
   rafId = requestAnimationFrame(tickCountdown);
 }
 

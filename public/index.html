@@ -20,35 +20,40 @@
   <!-- HOME -->
   <section id="home">
     <div class="card">
-      <h2>Rejoindre la partie</h2>
-      <p class="sub">Choisis ton pseudo, puis indique que tu es prêt. L'animateur lancera la partie.</p>
-      <label for="pseudo">Pseudo</label>
-      <input type="text" id="pseudo" maxlength="20" placeholder="ex. Capitaine Buzz" autocomplete="off">
-      <div style="height:12px"></div>
-      <label for="room">Code de la partie <span style="font-weight:400">(optionnel)</span></label>
-      <input type="text" id="room" maxlength="12" placeholder="PARTY" autocomplete="off">
-      <div style="height:14px"></div>
-      <button class="btn" id="joinBtn">Rejoindre</button>
-    </div>
-    <div class="card">
-      <h2>Animateur</h2>
-      <p class="sub">Mets ton pseudo ci-dessus, entre le mot de passe : tu pourras <b>jouer</b> ET contrôler la partie.</p>
-      <label for="adminPwd">Mot de passe</label>
+      <h2>Une partie de blind-test ?</h2>
+      <p class="sub">Crée une partie et partage le code d'invitation, ou rejoins une partie avec le code reçu.</p>
+      <button class="btn" id="createBtn">🎬 Créer une nouvelle partie</button>
+      <div class="hr"><span>ou</span></div>
+      <label for="room">Rejoindre avec un code</label>
       <div class="row">
-        <input type="password" id="adminPwd" placeholder="••••••" autocomplete="off">
-        <button class="btn ghost" id="adminBtn" style="flex:0 0 auto;width:auto;padding:14px 20px;">Entrer</button>
+        <input type="text" id="room" maxlength="4" placeholder="ex. QF3K" autocomplete="off" style="text-transform:uppercase;letter-spacing:2px;">
+        <button class="btn ghost" id="joinBtn" style="flex:0 0 auto;width:auto;padding:14px 20px;">Rejoindre</button>
       </div>
-      <p class="sub" id="adminErr" style="color:var(--no);margin:10px 0 0;display:none;">Mot de passe incorrect.</p>
+      <p class="sub" id="joinErr" style="color:var(--no);margin:10px 0 0;display:none;">Partie introuvable. Vérifie le code.</p>
     </div>
   </section>
 
   <!-- LOBBY -->
   <section id="lobby" class="hidden">
+    <div class="card invite-card">
+      <div class="invite-label">Code d'invitation</div>
+      <div class="invite-code" id="inviteCode">----</div>
+      <div class="row" style="margin-top:14px;">
+        <button class="btn ghost small" id="copyCode" style="padding:11px;font-size:14px;">Copier le code</button>
+        <button class="btn ghost small" id="copyLink" style="padding:11px;font-size:14px;">Copier le lien</button>
+      </div>
+    </div>
+
     <div class="card">
       <h2 id="lobbyTitle">File d'attente</h2>
       <p class="sub" id="lobbySub">En attente que l'animateur lance la partie…</p>
       <label>Joueurs : <span id="totalCount">0</span> — <span id="readyCount">0</span> prêt·s</label>
       <div class="players" id="playerList"></div>
+    </div>
+
+    <div class="card" id="nameCard">
+      <label for="nameInput">Ton pseudo <span style="font-weight:400">(optionnel)</span></label>
+      <input type="text" id="nameInput" maxlength="20" placeholder="Comment veux-tu apparaître ?" autocomplete="off">
     </div>
 
     <div class="card hidden" id="scoreCard">
@@ -97,23 +102,16 @@
       <div class="buzz-hint" id="buzzHint">Appuie dès que tu connais la réponse — touche <kbd>Espace</kbd></div>
     </div>
 
-    <div class="vote hidden" id="voteZone">
-      <h3>La réponse est-elle bonne&nbsp;?</h3>
-      <p class="resp" id="voteResp"></p>
-      <div class="vote-btns">
-        <button class="btn go" id="voteGo">Bonne réponse ✅</button>
-        <button class="btn no" id="voteNo">Faux ❌</button>
-      </div>
-      <p class="voted-note hidden" id="votedNote"></p>
+    <div class="answer-zone card hidden" id="answerZone">
+      <label for="answerInput">Ta réponse <span id="answerTimer" style="color:var(--spotlight);font-weight:700;"></span></label>
+      <input type="text" id="answerInput" maxlength="120" placeholder="Tape ta réponse…" autocomplete="off">
+      <p class="sub" id="answerHint" style="margin:10px 0 0;">Réponse enregistrée automatiquement.</p>
     </div>
 
-    <div class="result hidden" id="resultZone">
-      <div class="verdict" id="verdict"></div>
-      <div class="tally">
-        <div class="t"><div class="n" id="tGo" style="color:var(--go)">0</div><div class="l">Bonne</div></div>
-        <div class="t"><div class="n" id="tNo" style="color:var(--no)">0</div><div class="l">Faux</div></div>
-      </div>
-      <p class="sub" id="resumeNote" style="text-align:center;margin:0;">La vidéo reprend automatiquement…</p>
+    <div class="reveal hidden" id="revealZone">
+      <h3 id="revealTitle">Révélation — votez pour le gagnant</h3>
+      <div class="buzz-list" id="buzzList"></div>
+      <p class="voted-note hidden" id="revealNote"></p>
     </div>
 
     <p class="note" id="gameNote"></p>
