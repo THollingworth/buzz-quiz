@@ -1,7 +1,11 @@
 /* ============================================================
    BUZZ! — Serveur de jeu (Node + Express + WebSocket)
-   Le serveur fait autorite : il decide du premier buzz,
-   gere le compte a rebours et diffuse l'etat a tout le monde.
+   - L'animateur joue aussi (pseudo) et controle la partie.
+   - Seul l'animateur pilote le player ; sa position video est
+     relayee a tous (synchronisation).
+   - Anti double-buzz : on ne peut pas rebuzzer tant qu'un autre
+     joueur n'a pas buzze.
+   - Mode spectateur : ne buzze pas, ne vote pas, hors scores.
    ============================================================ */
 "use strict";
 
@@ -13,48 +17,56 @@ const { WebSocketServer } = require("ws");
 const PORT = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "buzz2026";
 const COUNTDOWN_MS = Number(process.env.COUNTDOWN_MS || 5000);
-const RESUME_MS = Number(process.env.RESUME_MS || 4000); // delai avant reprise auto de la video
+const RESUME_MS = Number(process.env.RESUME_MS || 4000);
 const DEFAULT_ROOM = "PARTY";
 
 const app = express();
 app.use(express.static(path.join(__dirname, "public")));
-// petite route de sante utile pour les hebergeurs
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 /* ---------- Modele ---------- */
-const rooms = new Map(); // code -> room
+const rooms = new Map();
 
 function getRoom(code) {
   code = (code || DEFAULT_ROOM).toString().toUpperCase().trim().slice(0, 12) || DEFAULT_ROOM;
   if (!rooms.has(code)) {
     rooms.set(code, {
       code,
-      phase: "lobby", // lobby | playing | buzzed | voting | result
+      phase: "lobby",
       videoId: null,
       round: 0,
-      buzz: null, // { id, name, at }
-      countdownEnd: null, // timestamp serveur
+      buzz: null,                 // { id, name, at }
+      lastBuzzerName: null,       // anti double-buzz
+      countdownEnd: null,
       countdownTimer: null,
       resumeTimer: null,
       resumeEnd: null,
-      lastResult: null, // { name, go, no, correct }
-      clients: new Map(), // clientId -> { ws, name, role:'player'|'admin', ready }
-      votes: new Map(), // clientId -> 'go' | 'no'
-      scores: new Map() // name -> points
+      lastResult: null,
+      sync: { time: 0, playing: false, at: Date.now() },
+      clients: new Map(),         // id -> { ws, name, isAdmin, ready, spectator }
+      votes: new Map(),           // id -> 'go' | 'no'
+      scores: new Map()           // name -> points
     });
   }
   return rooms.get(code);
 }
 
-function players(room) {
-  return [...room.clients.entries()].filter(([, c]) => c.role === "player");
+// participants actifs (non-spectateurs) : peuvent buzzer / voter / scorer
+function active(room) {
+  return [...room.clients.entries()].filter(([, c]) => !c.spectator);
 }
 function eligibleVoters(room) {
   const bid = room.buzz && room.buzz.id;
-  return players(room).filter(([id]) => id !== bid);
+  return active(room).filter(([id]) => id !== bid);
+}
+function scoreboard(room) {
+  const seen = new Map();
+  for (const [, c] of active(room)) if (!seen.has(c.name)) seen.set(c.name, room.scores.get(c.name) || 0);
+  return [...seen.entries()].map(([name, points]) => ({ name, points }))
+    .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
 }
 
 function parseYouTubeId(url) {
@@ -79,24 +91,28 @@ function publicState(room) {
     videoId: room.videoId,
     round: room.round,
     buzz: room.buzz,
+    lastBuzzerName: room.lastBuzzerName,
     countdownRemaining: room.countdownEnd ? Math.max(0, room.countdownEnd - Date.now()) : 0,
     resumeRemaining: room.phase === "result" && room.resumeEnd ? Math.max(0, room.resumeEnd - Date.now()) : 0,
     lastResult: room.lastResult || null,
-    players: players(room).map(([id, c]) => ({ id, name: c.name, ready: c.ready })),
+    players: [...room.clients.entries()].map(([id, c]) => ({
+      id, name: c.name, ready: c.ready, isAdmin: c.isAdmin, spectator: c.spectator
+    })),
     votes: [...room.votes.entries()].map(([id, v]) => ({ id, v })),
-    scores: [...room.scores.entries()]
-      .map(([name, points]) => ({ name, points }))
-      .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name))
+    scores: scoreboard(room),
+    sync: room.sync
   };
 }
 function broadcast(room) {
   const msg = JSON.stringify(publicState(room));
-  for (const c of room.clients.values()) {
-    if (c.ws.readyState === 1) c.ws.send(msg);
-  }
+  for (const c of room.clients.values()) if (c.ws.readyState === 1) c.ws.send(msg);
 }
-function send(ws, obj) {
-  if (ws.readyState === 1) ws.send(JSON.stringify(obj));
+function send(ws, obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+
+// relaie la position video de l'animateur a tous les autres
+function relaySync(room) {
+  const msg = JSON.stringify({ type: "sync", time: room.sync.time, playing: room.sync.playing, at: Date.now() });
+  for (const c of room.clients.values()) if (!c.isAdmin && c.ws.readyState === 1) c.ws.send(msg);
 }
 
 /* ---------- Transitions ---------- */
@@ -105,11 +121,7 @@ function startCountdown(room) {
   room.countdownEnd = Date.now() + COUNTDOWN_MS;
   clearTimeout(room.countdownTimer);
   room.countdownTimer = setTimeout(() => {
-    if (room.phase === "buzzed") {
-      room.phase = "voting";
-      broadcast(room);
-      maybeAutoResult(room);
-    }
+    if (room.phase === "buzzed") { room.phase = "voting"; broadcast(room); maybeAutoResult(room); }
   }, COUNTDOWN_MS);
 }
 function maybeAutoResult(room) {
@@ -118,8 +130,6 @@ function maybeAutoResult(room) {
   const allVoted = voters.length > 0 && voters.every(([id]) => room.votes.has(id));
   if (allVoted) toResult(room);
 }
-
-// Calcule le verdict, attribue les points, puis programme la reprise auto de la video
 function toResult(room) {
   if (room.phase === "result") return;
   clearTimeout(room.countdownTimer);
@@ -127,15 +137,11 @@ function toResult(room) {
   for (const v of room.votes.values()) { if (v === "go") go++; else if (v === "no") no++; }
   const correct = go > no;
   room.lastResult = { name: room.buzz ? room.buzz.name : null, go, no, correct };
-  if (room.buzz && correct) {
-    const cur = room.scores.get(room.buzz.name) || 0;
-    room.scores.set(room.buzz.name, cur + 1);
-  }
+  if (room.buzz && correct) room.scores.set(room.buzz.name, (room.scores.get(room.buzz.name) || 0) + 1);
   room.phase = "result";
   broadcast(room);
   scheduleResume(room);
 }
-
 function scheduleResume(room) {
   clearTimeout(room.resumeTimer);
   room.resumeEnd = Date.now() + RESUME_MS;
@@ -165,45 +171,55 @@ wss.on("connection", (ws) => {
     let m;
     try { m = JSON.parse(raw.toString()); } catch { return; }
 
-    // --- entree dans une salle ---
     if (m.type === "join" || m.type === "admin") {
       const room = getRoom(m.room);
-      // si deja dans une autre salle, on nettoie
       if (ws.roomCode && ws.roomCode !== room.code) leaveRoom(ws);
       ws.roomCode = room.code;
+      const name = (m.name || "Joueur").toString().slice(0, 20) || "Joueur";
 
       if (m.type === "admin") {
-        if (m.password !== ADMIN_PASSWORD) {
-          send(ws, { type: "admin_result", ok: false });
-          return;
-        }
-        room.clients.set(ws.clientId, { ws, name: "Animateur", role: "admin", ready: true });
+        if (m.password !== ADMIN_PASSWORD) { send(ws, { type: "admin_result", ok: false }); return; }
+        room.clients.set(ws.clientId, { ws, name, isAdmin: true, ready: true, spectator: false });
         send(ws, { type: "admin_result", ok: true, id: ws.clientId });
       } else {
-        const name = (m.name || "Joueur").toString().slice(0, 20);
-        room.clients.set(ws.clientId, { ws, name, role: "player", ready: false });
-        if (!room.scores.has(name)) room.scores.set(name, 0);
+        room.clients.set(ws.clientId, { ws, name, isAdmin: false, ready: false, spectator: false });
       }
-      broadcast(room);
+      broadcast(ws.roomCode && rooms.get(ws.roomCode));
+      // donne tout de suite la position video courante au nouvel arrivant
+      if (!room.clients.get(ws.clientId).isAdmin) {
+        send(ws, { type: "sync", time: room.sync.time, playing: room.sync.playing, at: Date.now() });
+      }
       return;
     }
 
-    // toutes les autres actions exigent d'etre dans une salle
     const room = ws.roomCode && rooms.get(ws.roomCode);
     if (!room) return;
     const me = room.clients.get(ws.clientId);
     if (!me) return;
-    const isAdmin = me.role === "admin";
+    const isAdmin = me.isAdmin;
 
     switch (m.type) {
+      case "sync": // position video : seul l'animateur fait autorite
+        if (isAdmin) {
+          room.sync = { time: Number(m.time) || 0, playing: !!m.playing, at: Date.now() };
+          relaySync(room);
+        }
+        break;
+
       case "ready":
-        if (me.role === "player") { me.ready = !me.ready; broadcast(room); }
+        if (!me.spectator) { me.ready = !me.ready; broadcast(room); }
+        break;
+
+      case "spectator":
+        me.spectator = !!m.value;
+        if (me.spectator) me.ready = false;
+        broadcast(room);
         break;
 
       case "setVideo":
         if (isAdmin) {
           const id = parseYouTubeId(m.url);
-          if (id) { room.videoId = id; broadcast(room); }
+          if (id) { room.videoId = id; room.sync = { time: 0, playing: false, at: Date.now() }; broadcast(room); relaySync(room); }
           else send(ws, { type: "notice", text: "Lien YouTube non reconnu." });
         }
         break;
@@ -213,6 +229,7 @@ wss.on("connection", (ws) => {
           room.phase = "playing";
           room.round = (room.round || 0) + 1;
           room.buzz = null;
+          room.lastBuzzerName = null;
           room.votes.clear();
           room.countdownEnd = null;
           room.lastResult = null;
@@ -223,8 +240,10 @@ wss.on("connection", (ws) => {
         break;
 
       case "buzz":
-        if (room.phase === "playing" && !room.buzz) {
+        if (room.phase === "playing" && !room.buzz && !me.spectator) {
+          if (me.name === room.lastBuzzerName) { send(ws, { type: "notice", text: "Attends qu'un autre joueur buzze." }); break; }
           room.buzz = { id: ws.clientId, name: me.name, at: Date.now() };
+          room.lastBuzzerName = me.name;
           room.votes.clear();
           startCountdown(room);
           broadcast(room);
@@ -232,9 +251,8 @@ wss.on("connection", (ws) => {
         break;
 
       case "vote":
-        if (room.phase === "voting" && (m.value === "go" || m.value === "no")) {
-          const bid = room.buzz && room.buzz.id;
-          if (ws.clientId !== bid) {
+        if (room.phase === "voting" && (m.value === "go" || m.value === "no") && !me.spectator) {
+          if (ws.clientId !== (room.buzz && room.buzz.id)) {
             room.votes.set(ws.clientId, m.value);
             broadcast(room);
             maybeAutoResult(room);
@@ -251,17 +269,14 @@ wss.on("connection", (ws) => {
         break;
 
       case "resetScores":
-        if (isAdmin) {
-          room.scores.clear();
-          for (const [, c] of players(room)) room.scores.set(c.name, 0);
-          broadcast(room);
-        }
+        if (isAdmin) { room.scores.clear(); broadcast(room); }
         break;
 
       case "resetLobby":
         if (isAdmin) {
           room.phase = "lobby";
           room.buzz = null;
+          room.lastBuzzerName = null;
           room.votes.clear();
           room.countdownEnd = null;
           room.lastResult = null;
@@ -284,7 +299,6 @@ function leaveRoom(ws) {
   room.votes.delete(ws.clientId);
   ws.roomCode = null;
 
-  // si l'auteur du buzz part pendant sa manche, on libere le buzzer
   if (wasBuzzer && (room.phase === "buzzed" || room.phase === "voting")) {
     clearTimeout(room.countdownTimer);
     room.phase = "playing";

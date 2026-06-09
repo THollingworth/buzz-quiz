@@ -161,3 +161,41 @@ input:focus{border-color:var(--spotlight);box-shadow:0 0 0 3px rgba(255,201,77,.
   .logo{font-size:26px;}
 }
 @media (prefers-reduced-motion:reduce){ *{transition:none !important;} }
+
+/* ---- Layout jeu : video + scoreboard cote a cote ---- */
+.game-grid{display:grid;grid-template-columns:1fr 290px;gap:16px;align-items:start;}
+.side-score{align-self:stretch;}
+.side-score .scoreboard{max-height:none;}
+@media (max-width:760px){
+  .game-grid{grid-template-columns:1fr;}
+}
+
+/* ---- Badges joueurs ---- */
+.chip.admin{border-color:var(--spotlight);}
+.chip .tag{font-size:11px;color:var(--muted);font-weight:600;}
+.chip.spectator{opacity:.7;}
+
+/* ---- Contrôle volume (tout le monde) ---- */
+.vol{position:absolute;right:10px;bottom:10px;z-index:6;display:flex;align-items:center;gap:8px;
+  background:rgba(16,10,34,.72);border:1px solid var(--line);border-radius:999px;padding:7px 12px;}
+.vol-ic{font-size:15px;line-height:1;}
+.vol input[type=range]{width:96px;accent-color:var(--spotlight);cursor:pointer;}
+
+/* ---- Bouton flottant animateur ---- */
+.admin-fab{position:fixed;right:20px;bottom:20px;z-index:40;width:58px;height:58px;border-radius:50%;
+  border:0;cursor:pointer;background:var(--spotlight);color:#1a1033;font-size:26px;line-height:1;
+  box-shadow:0 12px 28px -8px rgba(255,201,77,.6);transition:transform .1s ease, filter .15s ease;}
+.admin-fab:hover{filter:brightness(1.05);transform:translateY(-1px);}
+.admin-fab:active{transform:translateY(1px);}
+
+/* ---- Modale ---- */
+.modal{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;
+  padding:20px;background:rgba(8,5,18,.72);backdrop-filter:blur(3px);}
+.modal-card{width:100%;max-width:460px;background:var(--panel);border:1px solid var(--line);
+  border-radius:20px;padding:22px;max-height:88vh;overflow:auto;
+  box-shadow:0 30px 70px -20px rgba(0,0,0,.8);}
+.modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.modal-head h2{margin:0;}
+.modal-close{border:0;background:transparent;color:var(--muted);font-size:22px;cursor:pointer;
+  width:34px;height:34px;border-radius:9px;}
+.modal-close:hover{background:var(--panel-soft);color:var(--ink);}

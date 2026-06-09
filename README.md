@@ -36,17 +36,24 @@ Variables d'environnement disponibles :
 1. Chaque participant ouvre le site, met un **pseudo** (et le même **code de
    partie** que les autres, ou laisse vide pour la salle par défaut). Tant que
    l'animateur n'a pas lancé, le nombre de joueurs dans la file d'attente est
-   **illimité**. Chacun clique **Je suis prêt·e**.
-2. L'**animateur** entre le mot de passe, colle un **lien YouTube**, puis
-   **Lance la partie**.
-3. La vidéo passe au centre, le **buzzer** dessous. Premier qui appuie → pause
-   partout + compte à rebours de 5 s (le buzzer répond à l'oral).
+   **illimité**. Chacun clique **Je suis prêt·e** — ou **Passer spectateur**
+   pour seulement regarder (un spectateur ne buzze pas, ne vote pas et n'apparaît
+   pas au classement).
+2. L'**animateur** met aussi un pseudo et entre le mot de passe : il **joue**
+   comme les autres ET contrôle la partie via le bouton **⚙** (modale) où il
+   charge un **lien YouTube** et clique **Lance la partie**.
+3. La vidéo s'affiche au centre, le **classement à côté**, le **buzzer en bas**.
+   Premier qui appuie → la vidéo se met en pause **pour tout le monde** +
+   compte à rebours de 5 s (le buzzer répond à l'oral). Un joueur qui vient de
+   buzzer ne peut pas rebuzzer **tant qu'un autre joueur n'a pas buzzé**.
 4. Les boutons **vert / rouge** apparaissent pour les autres. Si la majorité
    valide, le buzzer gagne **+1 point**. Le verdict s'affiche, puis **la vidéo
    reprend automatiquement** (ou l'animateur clique « Reprendre maintenant »).
 
-Les **scores** sont cumulés sur toute la partie et affichés en direct pour tout
-le monde. L'animateur peut les remettre à zéro depuis la salle d'attente.
+**Lecture synchronisée** : seul l'animateur pilote le lecteur ; sa position est
+diffusée à tous les autres, qui ne peuvent que régler **leur volume**. Les
+**scores** sont cumulés sur toute la partie, affichés en direct, et
+réinitialisables par l'animateur depuis la modale.
 
 Astuce : touche **Espace** pour buzzer. Pour une soirée en présentiel, utilisez
 un seul écran (celui de l'animateur) pour l'image et le son ; le son est coupé

@@ -32,7 +32,7 @@
     </div>
     <div class="card">
       <h2>Animateur</h2>
-      <p class="sub">Entre le mot de passe pour ouvrir le panneau de contrôle et lancer la partie.</p>
+      <p class="sub">Mets ton pseudo ci-dessus, entre le mot de passe : tu pourras <b>jouer</b> ET contrôler la partie.</p>
       <label for="adminPwd">Mot de passe</label>
       <div class="row">
         <input type="password" id="adminPwd" placeholder="••••••" autocomplete="off">
@@ -45,7 +45,7 @@
   <!-- LOBBY -->
   <section id="lobby" class="hidden">
     <div class="card">
-      <h2 id="lobbyTitle">Salle d'attente</h2>
+      <h2 id="lobbyTitle">File d'attente</h2>
       <p class="sub" id="lobbySub">En attente que l'animateur lance la partie…</p>
       <label>Joueurs : <span id="totalCount">0</span> — <span id="readyCount">0</span> prêt·s</label>
       <div class="players" id="playerList"></div>
@@ -58,39 +58,37 @@
 
     <div class="card" id="readyCard">
       <button class="btn" id="readyBtn">Je suis prêt·e ✋</button>
-    </div>
-
-    <div class="card hidden" id="adminLobby">
-      <h2>Panneau animateur</h2>
-      <p class="sub">Colle le lien d'une vidéo YouTube, puis lance la partie quand tout le monde est prêt.</p>
-      <label for="vurl">Lien YouTube</label>
-      <div class="videoset">
-        <input type="text" id="vurl" placeholder="https://www.youtube.com/watch?v=…">
-        <button class="btn ghost small" id="setVideo" style="padding:14px 16px;font-size:14px;">Charger</button>
-      </div>
-      <p class="sub" id="videoState" style="margin:0 0 16px;">Aucune vidéo chargée.</p>
-      <button class="btn" id="startBtn">Lancer la partie</button>
-      <button class="btn ghost" id="resetScoresBtn" style="margin-top:10px;">Réinitialiser les scores</button>
+      <button class="btn ghost" id="specBtn" style="margin-top:10px;">👀 Passer spectateur</button>
     </div>
   </section>
 
   <!-- GAME -->
   <section id="game" class="hidden">
-    <div class="stage">
-      <div id="player"></div>
-      <div class="stage-empty hidden" id="stageEmpty">Aucune vidéo</div>
-      <button class="mute-toggle hidden" id="muteToggle">🔇 Activer le son</button>
-      <div class="overlay hidden" id="overlay">
-        <div class="who" id="overlayWho"></div>
-        <div class="ring">
-          <svg width="130" height="130">
-            <circle cx="65" cy="65" r="56" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="9"></circle>
-            <circle id="ringProg" cx="65" cy="65" r="56" fill="none" stroke="var(--spotlight)" stroke-width="9"
-              stroke-linecap="round" stroke-dasharray="351.86" stroke-dashoffset="0"></circle>
-          </svg>
-          <div class="num" id="ringNum">5</div>
+    <div class="game-grid">
+      <div class="stage">
+        <div id="player"></div>
+        <div class="stage-empty hidden" id="stageEmpty">Aucune vidéo</div>
+        <div class="vol hidden" id="volCtrl">
+          <span class="vol-ic" id="volIc">🔈</span>
+          <input type="range" id="volSlider" min="0" max="100" value="0" aria-label="Volume">
+        </div>
+        <div class="overlay hidden" id="overlay">
+          <div class="who" id="overlayWho"></div>
+          <div class="ring">
+            <svg width="130" height="130">
+              <circle cx="65" cy="65" r="56" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="9"></circle>
+              <circle id="ringProg" cx="65" cy="65" r="56" fill="none" stroke="var(--spotlight)" stroke-width="9"
+                stroke-linecap="round" stroke-dasharray="351.86" stroke-dashoffset="0"></circle>
+            </svg>
+            <div class="num" id="ringNum">5</div>
+          </div>
         </div>
       </div>
+
+      <aside class="side-score card">
+        <h2 style="font-size:18px;margin:0 0 12px;">Scores</h2>
+        <div class="scoreboard" id="scoreListGame"></div>
+      </aside>
     </div>
 
     <div class="buzz-zone" id="buzzZone">
@@ -117,24 +115,28 @@
       <p class="sub" id="resumeNote" style="text-align:center;margin:0;">La vidéo reprend automatiquement…</p>
     </div>
 
-    <div class="admin-bar hidden" id="adminBar">
-      <p class="ttl">Contrôle animateur</p>
-      <div class="videoset">
-        <input type="text" id="vurl2" placeholder="Changer de vidéo (lien YouTube)…">
-        <button class="btn ghost small" id="setVideo2" style="padding:13px 16px;font-size:14px;">Charger</button>
-      </div>
-      <div class="admin-grid" id="adminActions"></div>
-    </div>
-
-    <div class="card" id="scoreCardGame" style="margin-top:16px;">
-      <h2 style="font-size:18px;margin:0 0 12px;">Scores</h2>
-      <div class="scoreboard" id="scoreListGame"></div>
-    </div>
-
     <p class="note" id="gameNote"></p>
   </section>
 
-  <p class="note">Astuce&nbsp;: pour une vraie soirée, utilisez <b>un seul écran</b> (celui de l'animateur) pour l'image et le son&nbsp;; les autres peuvent buzzer depuis leur téléphone.</p>
+  <p class="note">La vidéo est <b>synchronisée</b> par l'animateur : lui seul pilote la lecture. Les autres ne règlent que leur volume.</p>
+</div>
+
+<!-- Bouton flottant + modale animateur -->
+<button class="admin-fab hidden" id="adminFab" title="Contrôle animateur">⚙</button>
+<div class="modal hidden" id="adminModal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Contrôle animateur</h2>
+      <button class="modal-close" id="closeModal" aria-label="Fermer">✕</button>
+    </div>
+    <label for="vurl">Vidéo YouTube</label>
+    <div class="videoset">
+      <input type="text" id="vurl" placeholder="https://www.youtube.com/watch?v=…">
+      <button class="btn ghost small" id="setVideo" style="padding:14px 16px;font-size:14px;">Charger</button>
+    </div>
+    <p class="sub" id="videoState" style="margin:0 0 16px;">Aucune vidéo chargée.</p>
+    <div class="admin-grid" id="adminActions"></div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
