@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>BUZZ! — Blind-test &amp; buzzer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="logo"><span class="b">BUZZ</span><span class="dot">!</span></div>
+    <div class="badge" id="badge">Connexion…</div>
+  </div>
+
+  <!-- HOME -->
+  <section id="home">
+    <div class="card">
+      <h2>Rejoindre la partie</h2>
+      <p class="sub">Choisis ton pseudo, puis indique que tu es prêt. L'animateur lancera la partie.</p>
+      <label for="pseudo">Pseudo</label>
+      <input type="text" id="pseudo" maxlength="20" placeholder="ex. Capitaine Buzz" autocomplete="off">
+      <div style="height:12px"></div>
+      <label for="room">Code de la partie <span style="font-weight:400">(optionnel)</span></label>
+      <input type="text" id="room" maxlength="12" placeholder="PARTY" autocomplete="off">
+      <div style="height:14px"></div>
+      <button class="btn" id="joinBtn">Rejoindre</button>
+    </div>
+    <div class="card">
+      <h2>Animateur</h2>
+      <p class="sub">Entre le mot de passe pour ouvrir le panneau de contrôle et lancer la partie.</p>
+      <label for="adminPwd">Mot de passe</label>
+      <div class="row">
+        <input type="password" id="adminPwd" placeholder="••••••" autocomplete="off">
+        <button class="btn ghost" id="adminBtn" style="flex:0 0 auto;width:auto;padding:14px 20px;">Entrer</button>
+      </div>
+      <p class="sub" id="adminErr" style="color:var(--no);margin:10px 0 0;display:none;">Mot de passe incorrect.</p>
+    </div>
+  </section>
+
+  <!-- LOBBY -->
+  <section id="lobby" class="hidden">
+    <div class="card">
+      <h2 id="lobbyTitle">Salle d'attente</h2>
+      <p class="sub" id="lobbySub">En attente que l'animateur lance la partie…</p>
+      <label>Joueurs : <span id="totalCount">0</span> — <span id="readyCount">0</span> prêt·s</label>
+      <div class="players" id="playerList"></div>
+    </div>
+
+    <div class="card hidden" id="scoreCard">
+      <h2 style="font-size:18px;margin:0 0 12px;">Scores</h2>
+      <div class="scoreboard" id="scoreList"></div>
+    </div>
+
+    <div class="card" id="readyCard">
+      <button class="btn" id="readyBtn">Je suis prêt·e ✋</button>
+    </div>
+
+    <div class="card hidden" id="adminLobby">
+      <h2>Panneau animateur</h2>
+      <p class="sub">Colle le lien d'une vidéo YouTube, puis lance la partie quand tout le monde est prêt.</p>
+      <label for="vurl">Lien YouTube</label>
+      <div class="videoset">
+        <input type="text" id="vurl" placeholder="https://www.youtube.com/watch?v=…">
+        <button class="btn ghost small" id="setVideo" style="padding:14px 16px;font-size:14px;">Charger</button>
+      </div>
+      <p class="sub" id="videoState" style="margin:0 0 16px;">Aucune vidéo chargée.</p>
+      <button class="btn" id="startBtn">Lancer la partie</button>
+      <button class="btn ghost" id="resetScoresBtn" style="margin-top:10px;">Réinitialiser les scores</button>
+    </div>
+  </section>
+
+  <!-- GAME -->
+  <section id="game" class="hidden">
+    <div class="stage">
+      <div id="player"></div>
+      <div class="stage-empty hidden" id="stageEmpty">Aucune vidéo</div>
+      <button class="mute-toggle hidden" id="muteToggle">🔇 Activer le son</button>
+      <div class="overlay hidden" id="overlay">
+        <div class="who" id="overlayWho"></div>
+        <div class="ring">
+          <svg width="130" height="130">
+            <circle cx="65" cy="65" r="56" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="9"></circle>
+            <circle id="ringProg" cx="65" cy="65" r="56" fill="none" stroke="var(--spotlight)" stroke-width="9"
+              stroke-linecap="round" stroke-dasharray="351.86" stroke-dashoffset="0"></circle>
+          </svg>
+          <div class="num" id="ringNum">5</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="buzz-zone" id="buzzZone">
+      <button class="buzzer" id="buzzer">BUZZ</button>
+      <div class="buzz-hint" id="buzzHint">Appuie dès que tu connais la réponse — touche <kbd>Espace</kbd></div>
+    </div>
+
+    <div class="vote hidden" id="voteZone">
+      <h3>La réponse est-elle bonne&nbsp;?</h3>
+      <p class="resp" id="voteResp"></p>
+      <div class="vote-btns">
+        <button class="btn go" id="voteGo">Bonne réponse ✅</button>
+        <button class="btn no" id="voteNo">Faux ❌</button>
+      </div>
+      <p class="voted-note hidden" id="votedNote"></p>
+    </div>
+
+    <div class="result hidden" id="resultZone">
+      <div class="verdict" id="verdict"></div>
+      <div class="tally">
+        <div class="t"><div class="n" id="tGo" style="color:var(--go)">0</div><div class="l">Bonne</div></div>
+        <div class="t"><div class="n" id="tNo" style="color:var(--no)">0</div><div class="l">Faux</div></div>
+      </div>
+      <p class="sub" id="resumeNote" style="text-align:center;margin:0;">La vidéo reprend automatiquement…</p>
+    </div>
+
+    <div class="admin-bar hidden" id="adminBar">
+      <p class="ttl">Contrôle animateur</p>
+      <div class="videoset">
+        <input type="text" id="vurl2" placeholder="Changer de vidéo (lien YouTube)…">
+        <button class="btn ghost small" id="setVideo2" style="padding:13px 16px;font-size:14px;">Charger</button>
+      </div>
+      <div class="admin-grid" id="adminActions"></div>
+    </div>
+
+    <div class="card" id="scoreCardGame" style="margin-top:16px;">
+      <h2 style="font-size:18px;margin:0 0 12px;">Scores</h2>
+      <div class="scoreboard" id="scoreListGame"></div>
+    </div>
+
+    <p class="note" id="gameNote"></p>
+  </section>
+
+  <p class="note">Astuce&nbsp;: pour une vraie soirée, utilisez <b>un seul écran</b> (celui de l'animateur) pour l'image et le son&nbsp;; les autres peuvent buzzer depuis leur téléphone.</p>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

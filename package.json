@@ -1,0 +1,18 @@
+{
+  "name": "buzz-quiz",
+  "version": "1.0.0",
+  "description": "Jeu de buzzer / blind-test multijoueur en temps reel (WebSocket).",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  }
+}
