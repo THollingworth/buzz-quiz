@@ -202,3 +202,7 @@ input:focus{border-color:var(--spotlight);box-shadow:0 0 0 3px rgba(255,201,77,.
 .modal-close{border:0;background:transparent;color:var(--muted);font-size:22px;cursor:pointer;
   width:34px;height:34px;border-radius:9px;}
 .modal-close:hover{background:var(--panel-soft);color:var(--ink);}
+
+/* ---- Calque anti-manipulation du lecteur (non-animateurs) ---- */
+/* z-index 4 : au-dessus de l'iframe, mais SOUS le volume (6) et le compte a rebours (5) */
+.click-block{position:absolute;inset:0;z-index:4;background:transparent;cursor:default;}

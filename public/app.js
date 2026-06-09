@@ -275,6 +275,7 @@ function renderGame() {
   const isBuzzer = s.buzz && s.buzz.id === myId;
 
   show("volCtrl", !!s.videoId);
+  show("clickBlock", !isAdmin() && !!s.videoId);
 
   if (s.phase === "buzzed") { show("overlay", true); $("overlayWho").textContent = (s.buzz ? s.buzz.name : "") + " a buzzé !"; startCountdownLoop(); }
   else { show("overlay", false); stopCountdownLoop(); }
