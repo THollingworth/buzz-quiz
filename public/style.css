@@ -29,7 +29,8 @@ body{
   min-height:100vh;
   -webkit-font-smoothing:antialiased;
 }
-.wrap{max-width:780px;margin:0 auto;padding:22px 18px 56px;}
+.wrap{max-width:1160px;margin:0 auto;padding:22px 18px 56px;}
+#home,#lobby{max-width:600px;margin-left:auto;margin-right:auto;}
 
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:22px;}
 .logo{font-family:var(--display);font-weight:700;font-size:30px;letter-spacing:.5px;line-height:1;}
@@ -163,10 +164,12 @@ input:focus{border-color:var(--spotlight);box-shadow:0 0 0 3px rgba(255,201,77,.
 @media (prefers-reduced-motion:reduce){ *{transition:none !important;} }
 
 /* ---- Layout jeu : video + scoreboard cote a cote ---- */
-.game-grid{display:grid;grid-template-columns:1fr 290px;gap:16px;align-items:start;}
+.game-grid{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:start;margin-bottom:6px;}
 .side-score{align-self:stretch;}
 .side-score .scoreboard{max-height:none;}
-@media (max-width:760px){
+/* la zone buzz/vote/result reste centree et lisible sous une grande video */
+.buzz-zone,.vote,.result{max-width:680px;margin-left:auto;margin-right:auto;}
+@media (max-width:900px){
   .game-grid{grid-template-columns:1fr;}
 }
 

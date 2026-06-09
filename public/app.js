@@ -129,16 +129,16 @@ function pushSync(onChange) {
   lastSentState = playing;
   sendMsg({ type: "sync", time: ytCurrentTime || 0, playing });
 }
-setInterval(() => pushSync(false), 1200); // animateur : envoi periodique
+setInterval(() => pushSync(false), 900); // animateur : envoi periodique
 
 function onSync(m) { syncBase = { time: m.time, playing: m.playing, at: Date.now() }; }
 setInterval(() => { // non-animateur : reconciliation
   if (isAdmin() || !ytFrame || !syncBase || !state || state.phase !== "playing") return;
   const expected = syncBase.time + (syncBase.playing ? (Date.now() - syncBase.at) / 1000 : 0);
-  if (Math.abs((ytCurrentTime || 0) - expected) > 1.8) ytSeek(expected);
+  if (Math.abs((ytCurrentTime || 0) - expected) > 1.0) ytSeek(expected);
   if (syncBase.playing && ytPlayerState !== 1) ytPost("playVideo");
   if (!syncBase.playing && ytPlayerState === 1) ytPost("pauseVideo");
-}, 900);
+}, 700);
 
 /* ============================================================
    Actions UI
