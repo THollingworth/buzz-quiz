@@ -151,17 +151,15 @@ $("joinBtn").onclick = () => {
 };
 $("room").addEventListener("keydown", (e) => { if (e.key === "Enter") $("joinBtn").click(); });
 
-function joinRoom(code) { $("joinErr").style.display = "none"; myRole = "player"; sendMsg({ type: "join", room: code }); setBadge(); }
 function renderRooms() {
   if (myRole !== null) { show("roomsCard", false); return; }
   show("roomsCard", activeRooms.length > 0);
   const list = $("roomsList"); list.innerHTML = "";
   activeRooms.forEach((r) => {
-    const row = document.createElement("button");
+    const row = document.createElement("div");
     row.className = "room-row";
     const status = r.phase === "lobby" ? "en attente" : r.phase === "ended" ? "terminée" : "en jeu";
     row.innerHTML = '<span class="rl">' + escapeHtml(r.label) + '</span><span class="rc">' + r.count + " joueur" + (r.count > 1 ? "s" : "") + '</span><span class="rs">' + status + "</span>";
-    row.onclick = () => joinRoom(r.code);
     list.appendChild(row);
   });
 }
