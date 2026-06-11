@@ -1,5 +1,5 @@
 /* ============================================================
-   BUZZ! — Serveur de jeu (Node + Express + WebSocket)
+   BlindZik — Serveur de jeu (Node + Express + WebSocket)
    La video est un fichier local cote client (pas de synchro reseau).
    ============================================================ */
 "use strict";
@@ -74,6 +74,15 @@ function broadcast(room) {
   for (const c of room.clients.values()) if (c.ws.readyState === 1) c.ws.send(msg);
 }
 function send(ws, obj) { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+function roomSummary() {
+  const out = []; let i = 0;
+  for (const room of rooms.values()) { i++; out.push({ code: room.code, label: "Lobby " + i, count: room.clients.size, phase: room.phase }); }
+  return out;
+}
+function broadcastRoomList() {
+  const msg = JSON.stringify({ type: "rooms", rooms: roomSummary() });
+  for (const client of wss.clients) if (client.readyState === 1 && !client.roomCode) client.send(msg);
+}
 function relayVsync(room) {
   const msg = JSON.stringify({ type: "vsync", time: room.vsync.time, playing: room.vsync.playing });
   for (const c of room.clients.values()) if (!c.isAdmin && c.ws.readyState === 1) c.ws.send(msg);
@@ -141,7 +150,7 @@ function startGame(room) {
   room.phase = "playing"; room.round = (room.round || 0) + 1;
   room.buzzes = []; room.revealVotes.clear(); room.revealDecided = false; room.lastWinner = null; room.revealOutcome = null;
   room.collectEnd = null; clearTimeout(room.collectTimer);
-  broadcast(room);
+  broadcast(room); broadcastRoomList();
 }
 // lance un compte a rebours de 5 s quand tous les joueurs actifs (>=2) sont prets
 function checkAutoStart(room) {
@@ -164,9 +173,12 @@ wss.on("connection", (ws) => {
   ws.clientId = "c" + idSeq++ + Math.random().toString(36).slice(2, 6);
   ws.roomCode = null;
   send(ws, { type: "welcome", id: ws.clientId });
+  send(ws, { type: "rooms", rooms: roomSummary() });
 
   ws.on("message", (raw) => {
     let m; try { m = JSON.parse(raw.toString()); } catch { return; }
+
+    if (m.type === "listRooms") { send(ws, { type: "rooms", rooms: roomSummary() }); return; }
 
     if (m.type === "create") {
       if (ws.roomCode) leaveRoom(ws);
@@ -175,7 +187,7 @@ wss.on("connection", (ws) => {
       const name = (m.name || "Hôte").toString().slice(0, 20) || "Hôte";
       room.clients.set(ws.clientId, { ws, name, isAdmin: true, ready: true, spectator: false });
       send(ws, { type: "created", room: code, id: ws.clientId });
-      broadcast(room); return;
+      broadcast(room); broadcastRoomList(); return;
     }
     if (m.type === "join") {
       const code = (m.room || "").toString().toUpperCase().trim();
@@ -189,6 +201,7 @@ wss.on("connection", (ws) => {
       broadcast(room);
       send(ws, { type: "vsync", time: room.vsync.time, playing: room.vsync.playing });
       checkAutoStart(room);
+      broadcastRoomList();
       return;
     }
     if (m.type === "rejoin") {
@@ -204,6 +217,7 @@ wss.on("connection", (ws) => {
       send(ws, { type: asAdmin ? "created" : "joined", room: code, id: ws.clientId });
       broadcast(room);
       if (!asAdmin) send(ws, { type: "vsync", time: room.vsync.time, playing: room.vsync.playing });
+      broadcastRoomList();
       return;
     }
     if (m.type === "leave") { leaveRoom(ws); send(ws, { type: "left" }); return; }
@@ -269,7 +283,7 @@ wss.on("connection", (ws) => {
           room.lastWinner = null; room.revealOutcome = "nogood"; room.revealDecided = true; broadcast(room);
         } break;
       case "continue": if (isAdmin) nextRound(room); break;
-      case "endGame": if (isAdmin) { clearTimeout(room.collectTimer); room.phase = "ended"; room.collectEnd = null; broadcast(room); } break;
+      case "endGame": if (isAdmin) { clearTimeout(room.collectTimer); room.phase = "ended"; room.collectEnd = null; broadcast(room); broadcastRoomList(); } break;
       case "resetScores": if (isAdmin) { room.scores.clear(); broadcast(room); } break;
       case "resetLobby":
         if (isAdmin) {
@@ -277,7 +291,7 @@ wss.on("connection", (ws) => {
           room.phase = "lobby"; room.buzzes = []; room.revealVotes.clear();
           room.revealDecided = false; room.lastWinner = null; room.collectEnd = null;
           room.video = null; room.vsync = { time: 0, playing: false, at: Date.now() };
-          clearTimeout(room.collectTimer); broadcast(room); relayVsync(room);
+          clearTimeout(room.collectTimer); broadcast(room); relayVsync(room); broadcastRoomList();
         } break;
     }
   });
@@ -301,6 +315,7 @@ function leaveRoom(ws) {
     }
     broadcast(room); maybeAutoCloseReveal(room); checkAutoStart(room);
   }
+  broadcastRoomList();
 }
 
-server.listen(PORT, () => console.log(`BUZZ! en ecoute sur le port ${PORT}`));
+server.listen(PORT, () => console.log(`BlindZik en ecoute sur le port ${PORT}`));

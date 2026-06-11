@@ -1,5 +1,5 @@
 /* ============================================================
-   BUZZ! — Client (WebSocket + lecteur video local)
+   BlindZik — Client (WebSocket + lecteur video local)
    ============================================================ */
 "use strict";
 
@@ -12,6 +12,7 @@ let myId = null, myRole = null, myName = "", myRoom = "";
 let autoJoinRoom = null, lastRoundSeen = -1;
 let buzzerMode = !!(window.matchMedia && window.matchMedia("(max-width:760px)").matches);
 let pseudoSet = false;
+let activeRooms = [];
 let state = null;
 
 (function () { const r = (new URLSearchParams(location.search).get("room") || "").toUpperCase().trim(); if (r) autoJoinRoom = r; })();
@@ -40,6 +41,7 @@ function handleServer(m) {
   if (m.type === "promoted") { myRole = "admin"; applyVideoControls(); toast("Tu es maintenant l'animateur 🎬"); return; }
   if (m.type === "left") { resetToHome(); return; }
   if (m.type === "vsync") { onVsync(m); return; }
+  if (m.type === "rooms") { activeRooms = m.rooms || []; renderRooms(); return; }
   if (m.type === "notice") { toast(m.text); return; }
   if (m.type === "state") { state = m; onState(); return; }
 }
@@ -149,6 +151,21 @@ $("joinBtn").onclick = () => {
 };
 $("room").addEventListener("keydown", (e) => { if (e.key === "Enter") $("joinBtn").click(); });
 
+function joinRoom(code) { $("joinErr").style.display = "none"; myRole = "player"; sendMsg({ type: "join", room: code }); setBadge(); }
+function renderRooms() {
+  if (myRole !== null) { show("roomsCard", false); return; }
+  show("roomsCard", activeRooms.length > 0);
+  const list = $("roomsList"); list.innerHTML = "";
+  activeRooms.forEach((r) => {
+    const row = document.createElement("button");
+    row.className = "room-row";
+    const status = r.phase === "lobby" ? "en attente" : r.phase === "ended" ? "terminée" : "en jeu";
+    row.innerHTML = '<span class="rl">' + escapeHtml(r.label) + '</span><span class="rc">' + r.count + " joueur" + (r.count > 1 ? "s" : "") + '</span><span class="rs">' + status + "</span>";
+    row.onclick = () => joinRoom(r.code);
+    list.appendChild(row);
+  });
+}
+
 $("startBtn").onclick = () => sendMsg({ type: "start" });
 $("readyBtn").onclick = () => { sendRename(); if ($("nameInput").value.trim()) sendMsg({ type: "ready" }); };
 $("specBtn").onclick = () => { const me = meEntry(); sendMsg({ type: "spectator", value: !(me && me.spectator) }); };
@@ -174,6 +191,8 @@ function resetToHome() {
   show("home", true); show("lobby", false); show("game", false); show("endScreen", false);
   show("quitBtn", false); show("adminFab", false); show("adminModal", false); show("modeToggle", false);
   setBadge();
+  sendMsg({ type: "listRooms" });
+  renderRooms();
 }
 
 let answerTimer = null;

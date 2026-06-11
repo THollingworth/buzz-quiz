@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BUZZ! — Blind-test &amp; buzzer</title>
+<title>BlindZik — Blind-test &amp; buzzer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -12,7 +12,7 @@
 <body>
 <div class="wrap">
   <div class="top">
-    <div class="logo"><span class="b">BUZZ</span><span class="dot">!</span></div>
+    <div class="logo"><span class="b">Blind</span><span class="z">Zik</span></div>
     <div class="top-right">
       <div class="badge" id="badge">Connexion…</div>
       <button class="btn ghost small hidden" id="modeToggle" style="width:auto;padding:8px 12px;font-size:13px;">📱 Mode buzzer</button>
@@ -33,6 +33,12 @@
         <button class="btn ghost" id="joinBtn" style="flex:0 0 auto;width:auto;padding:14px 20px;">Rejoindre</button>
       </div>
       <p class="sub" id="joinErr" style="color:var(--no);margin:10px 0 0;display:none;">Partie introuvable. Vérifie le code.</p>
+    </div>
+
+    <div class="card hidden" id="roomsCard">
+      <h2 style="font-size:20px;margin:0 0 4px;">Parties en cours</h2>
+      <p class="sub">Rejoins une partie active en un clic.</p>
+      <div class="rooms-list" id="roomsList"></div>
     </div>
   </section>
 

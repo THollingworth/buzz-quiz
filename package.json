@@ -1,7 +1,7 @@
 {
-  "name": "buzz-quiz",
+  "name": "blindzik",
   "version": "1.0.0",
-  "description": "Jeu de buzzer / blind-test multijoueur en temps reel (WebSocket).",
+  "description": "BlindZik — jeu de buzzer / blind-test multijoueur en temps reel (WebSocket).",
   "type": "commonjs",
   "main": "server.js",
   "scripts": {

@@ -1,4 +1,4 @@
-# BUZZ! — Blind-test & buzzer multijoueur
+# BlindZik — Blind-test & buzzer multijoueur
 
 Un petit site de jeu de buzzer en temps réel : les joueurs s'inscrivent avec un
 pseudo, l'animateur (le créateur de la partie) choisit un fichier vidéo et lance
@@ -33,7 +33,8 @@ Variables d'environnement disponibles :
 ## Comment on joue
 
 1. Sur l'accueil, deux choix : **Créer une nouvelle partie** ou **Rejoindre une
-   partie** avec un code. Pas de pseudo ni de mot de passe à saisir.
+   partie** avec un code. Les **parties en cours** s'affichent aussi en direct
+   (Lobby 1, 2, 3… avec le nombre de joueurs) — un clic pour les rejoindre.
 2. Celui qui **crée** devient l'**animateur** : un **code d'invitation** (4 lettres)
    s'affiche, à partager (« Copier le code » / « Copier le lien »). Il **joue**
    comme les autres ET contrôle la partie. Si l'animateur quitte, le rôle passe
@@ -88,8 +89,8 @@ Un `Dockerfile` et un `docker-compose.yml` sont fournis.
 **Via les Stacks Portainer (le plus simple)** : Stacks > Add stack > Repository,
 indique l'URL de ton dépôt Git et `docker-compose.yml` comme chemin du compose,
 puis déploie. Le port est `3000` (modifiable côté hôte dans le compose), et tes
-vidéos vont dans le volume `buzz-videos` (monté sur `/app/public/videos`) — tu peux
-les déposer depuis Portainer (Volumes > buzz-videos > Browse) sans reconstruire.
+vidéos vont dans le volume `blindzik-videos` (monté sur `/app/public/videos`) — tu peux
+les déposer depuis Portainer (Volumes > blindzik-videos > Browse) sans reconstruire.
 
 **En ligne de commande** : `docker compose up -d --build`.
 
