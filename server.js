@@ -151,6 +151,13 @@ app.get("/api/videos", requireAuth, (_req, res) => {
   });
 });
 
+app.get("/blindzik", (req, res) => {
+  const token = req.signedCookies && req.signedCookies.session;
+  const user = db.userByToken(token);
+  if (!user) return res.redirect("/auth.html");
+  res.sendFile(require("path").join(__dirname, "public", "index.html"));
+});
+
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
 
 
