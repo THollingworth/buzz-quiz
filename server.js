@@ -27,6 +27,16 @@ fs.mkdirSync(VIDEO_DIR, { recursive: true });
 const app = express();
 app.use(express.json());
 app.use(cookieParser(COOKIE_SECRET));
+// Root + index redirect → hub or auth (must be before static)
+function authRedirect(req, res) {
+  const token = req.signedCookies && req.signedCookies.session;
+  const user = db.userByToken(token);
+  if (user) res.redirect("/hub.html");
+  else res.redirect("/auth.html");
+}
+app.get("/", authRedirect);
+app.get("/index.html", authRedirect);
+
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/avatars", express.static(AVATAR_DIR));
 
@@ -143,15 +153,7 @@ app.get("/api/videos", requireAuth, (_req, res) => {
 
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
 
-// Root + index redirect → hub or auth
-function authRedirect(req, res) {
-  const token = req.signedCookies && req.signedCookies.session;
-  const user = db.userByToken(token);
-  if (user) res.redirect("/hub.html");
-  else res.redirect("/auth.html");
-}
-app.get("/", authRedirect);
-app.get("/index.html", authRedirect);
+
 
 /* ============================================================
    BlindZik — Logique jeu WebSocket
