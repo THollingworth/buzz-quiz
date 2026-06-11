@@ -313,3 +313,29 @@ body.buzzer-mode .buzz-hint{ font-size:15px; }
 .room-row .rc{color:var(--muted);font-size:14px;}
 .room-row .rs{font-size:12px;color:var(--muted);background:var(--panel);border:1px solid var(--line);
   border-radius:999px;padding:3px 9px;white-space:nowrap;}
+
+/* ---- Hub / comptes / historique ---- */
+#login,#hub,#history{max-width:720px;margin-left:auto;margin-right:auto;}
+.hub-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.hub-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.modes-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.mode-card{display:flex;flex-direction:column;align-items:flex-start;gap:6px;text-align:left;
+  background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:22px;color:var(--ink);
+  font-family:var(--body);cursor:default;position:relative;min-height:150px;}
+.mode-card.available{cursor:pointer;}
+.mode-card.available:hover{border-color:var(--spotlight);transform:translateY(-2px);transition:.15s;}
+.mode-card.soon{opacity:.55;}
+.mode-emoji{font-size:34px;line-height:1;}
+.mode-name{font-family:var(--display);font-weight:600;font-size:21px;}
+.mode-desc{color:var(--muted);font-size:14px;}
+.mode-badge{margin-top:auto;font-size:12px;font-weight:700;color:var(--muted);background:var(--stage-deep);
+  border:1px solid var(--line);border-radius:999px;padding:5px 12px;}
+.mode-badge.go{color:#1a1033;background:var(--spotlight);border-color:var(--spotlight);}
+.games-list{display:flex;flex-direction:column;gap:8px;}
+.game-item{background:var(--stage-deep);border:1px solid var(--line);border-radius:12px;padding:12px 15px;}
+.game-item .gi-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.game-item .gi-mode{font-weight:600;}
+.game-item .gi-date{font-size:12px;color:var(--muted);}
+.game-item .gi-win{font-size:13px;color:var(--spotlight);font-weight:600;margin-top:4px;}
+.game-item .gi-players{font-size:13px;color:var(--muted);margin-top:3px;}
+@media(max-width:560px){.modes-grid{grid-template-columns:1fr;}}

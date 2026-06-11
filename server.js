@@ -9,6 +9,8 @@ const http = require("http");
 const fs = require("fs");
 const express = require("express");
 const { WebSocketServer } = require("ws");
+const db = require("./db");
+db.load();
 
 const PORT = process.env.PORT || 3000;
 const COLLECT_MS = Number(process.env.COLLECT_MS || 5000);
@@ -140,6 +142,28 @@ function nextRound(room) {
   room.revealDecided = false; room.lastWinner = null; room.revealOutcome = null; room.round = (room.round || 0) + 1;
   broadcast(room);
 }
+// enregistre la partie terminee dans l'historique global et credite les victoires
+function recordEndedGame(room) {
+  const board = scoreboard(room); // [{ name, points }] tries
+  if (!board.length) return;
+  const max = board[0].points;
+  const winners = board.filter((b) => b.points === max && max > 0).map((b) => b.name);
+  db.recordGame({
+    id: "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+    mode: "BlindZik",
+    endedAt: Date.now(),
+    players: board.map((b) => ({ pseudo: b.name, points: b.points })),
+    winners
+  });
+  if (max > 0) {
+    const credited = new Set();
+    for (const [, c] of active(room)) {
+      if (c.userId && !credited.has(c.userId) && (room.scores.get(c.name) || 0) === max) {
+        db.addWin(c.userId); credited.add(c.userId);
+      }
+    }
+  }
+}
 
 function cancelLobbyCountdown(room) {
   if (room.lobbyTimer) { clearTimeout(room.lobbyTimer); room.lobbyTimer = null; room.lobbyCountdownEnd = null; return true; }
@@ -172,20 +196,81 @@ let idSeq = 1;
 wss.on("connection", (ws) => {
   ws.clientId = "c" + idSeq++ + Math.random().toString(36).slice(2, 6);
   ws.roomCode = null;
+  ws.userId = null;
+  ws.pseudo = null;
+  ws.token = null;
   send(ws, { type: "welcome", id: ws.clientId });
-  send(ws, { type: "rooms", rooms: roomSummary() });
 
   ws.on("message", (raw) => {
     let m; try { m = JSON.parse(raw.toString()); } catch { return; }
 
+    /* ---------- Authentification ---------- */
+    if (m.type === "resume") {
+      const u = db.userByToken(m.token);
+      if (!u) { send(ws, { type: "auth_error" }); return; }
+      ws.userId = u.id; ws.pseudo = u.pseudo; ws.token = m.token;
+      send(ws, { type: "authed", token: m.token, pseudo: u.pseudo, userId: u.id });
+      send(ws, { type: "rooms", rooms: roomSummary() });
+      return;
+    }
+    if (m.type === "auth") {
+      const pseudo = String(m.pseudo || "").trim();
+      const pin = String(m.pin || "");
+      if (!db.validPseudo(pseudo)) { send(ws, { type: "auth_fail", reason: "Pseudo : entre 2 et 20 caractères." }); return; }
+      if (!db.validPin(pin)) { send(ws, { type: "auth_fail", reason: "Le code PIN doit faire 4 chiffres." }); return; }
+      let u = db.findByPseudo(pseudo);
+      const isNew = !u;
+      if (u) { if (!db.verifyPin(pin, u.pin)) { send(ws, { type: "auth_fail", reason: "Code PIN incorrect pour ce pseudo." }); return; } }
+      else { u = db.createUser(pseudo, pin); }
+      const token = db.newSession(u.id);
+      ws.userId = u.id; ws.pseudo = u.pseudo; ws.token = token;
+      send(ws, { type: "authed", token, pseudo: u.pseudo, userId: u.id, created: isNew });
+      send(ws, { type: "rooms", rooms: roomSummary() });
+      return;
+    }
+    if (m.type === "logout") {
+      if (ws.roomCode) leaveRoom(ws);
+      db.dropSession(ws.token);
+      ws.userId = null; ws.pseudo = null; ws.token = null;
+      send(ws, { type: "loggedout" });
+      return;
+    }
+
+    /* ---------- A partir d'ici : connexion requise ---------- */
+    if (!ws.userId) { send(ws, { type: "auth_required" }); return; }
+
+    if (m.type === "setPseudo") {
+      const pseudo = String(m.pseudo || "").trim();
+      if (!db.validPseudo(pseudo)) { send(ws, { type: "pseudo_error", reason: "Pseudo : entre 2 et 20 caractères." }); return; }
+      if (db.pseudoTaken(pseudo, ws.userId)) { send(ws, { type: "pseudo_error", reason: "Ce pseudo est déjà pris." }); return; }
+      const old = ws.pseudo;
+      db.setPseudo(ws.userId, pseudo);
+      ws.pseudo = pseudo;
+      send(ws, { type: "pseudo_ok", pseudo });
+      const r = ws.roomCode && rooms.get(ws.roomCode);
+      if (r) {
+        const c = r.clients.get(ws.clientId);
+        if (c) {
+          c.name = pseudo;
+          if (r.scores.has(old)) { r.scores.set(pseudo, r.scores.get(old)); r.scores.delete(old); }
+          for (const b of r.buzzes) if (b.id === ws.clientId) b.name = pseudo;
+          if (r.lastWinner && r.lastWinner.id === ws.clientId) r.lastWinner.name = pseudo;
+          broadcast(r);
+        }
+      }
+      return;
+    }
+    if (m.type === "history") {
+      send(ws, { type: "history", wins: db.winsBoard(), games: db.recentGames(50) });
+      return;
+    }
     if (m.type === "listRooms") { send(ws, { type: "rooms", rooms: roomSummary() }); return; }
 
     if (m.type === "create") {
       if (ws.roomCode) leaveRoom(ws);
       const code = genCode(); const room = createRoomObj(code); rooms.set(code, room);
       ws.roomCode = code;
-      const name = (m.name || "Hôte").toString().slice(0, 20) || "Hôte";
-      room.clients.set(ws.clientId, { ws, name, isAdmin: true, ready: true, spectator: false });
+      room.clients.set(ws.clientId, { ws, userId: ws.userId, name: ws.pseudo, isAdmin: true, ready: true, spectator: false });
       send(ws, { type: "created", room: code, id: ws.clientId });
       broadcast(room); broadcastRoomList(); return;
     }
@@ -194,9 +279,8 @@ wss.on("connection", (ws) => {
       const room = rooms.get(code);
       if (!room) { send(ws, { type: "join_error" }); return; }
       if (ws.roomCode && ws.roomCode !== code) leaveRoom(ws);
-      ws.roomCode = code; room.seq = (room.seq || 0) + 1;
-      const name = (m.name && String(m.name).trim()) ? String(m.name).slice(0, 20) : "Joueur " + room.seq;
-      room.clients.set(ws.clientId, { ws, name, isAdmin: false, ready: false, spectator: false });
+      ws.roomCode = code;
+      room.clients.set(ws.clientId, { ws, userId: ws.userId, name: ws.pseudo, isAdmin: false, ready: false, spectator: false });
       send(ws, { type: "joined", room: code, id: ws.clientId });
       broadcast(room);
       send(ws, { type: "vsync", time: room.vsync.time, playing: room.vsync.playing });
@@ -212,8 +296,7 @@ wss.on("connection", (ws) => {
       ws.roomCode = code;
       const noAdmin = ![...room.clients.values()].some((c) => c.isAdmin);
       const asAdmin = !!m.wasAdmin && noAdmin;
-      const name = (m.name || "Joueur").toString().slice(0, 20) || "Joueur";
-      room.clients.set(ws.clientId, { ws, name, isAdmin: asAdmin, ready: asAdmin, spectator: false });
+      room.clients.set(ws.clientId, { ws, userId: ws.userId, name: ws.pseudo, isAdmin: asAdmin, ready: asAdmin, spectator: false });
       send(ws, { type: asAdmin ? "created" : "joined", room: code, id: ws.clientId });
       broadcast(room);
       if (!asAdmin) send(ws, { type: "vsync", time: room.vsync.time, playing: room.vsync.playing });
@@ -229,15 +312,6 @@ wss.on("connection", (ws) => {
     const isAdmin = me.isAdmin;
 
     switch (m.type) {
-      case "rename": {
-        const newName = (m.name || "").toString().slice(0, 20).trim();
-        if (!newName || newName === me.name) break;
-        const old = me.name; me.name = newName;
-        if (room.scores.has(old)) { room.scores.set(newName, room.scores.get(old)); room.scores.delete(old); }
-        for (const b of room.buzzes) if (b.id === ws.clientId) b.name = newName;
-        if (room.lastWinner && room.lastWinner.id === ws.clientId) room.lastWinner.name = newName;
-        broadcast(room); break;
-      }
       case "ready": if (!me.spectator) { me.ready = !me.ready; broadcast(room); checkAutoStart(room); } break;
       case "spectator": me.spectator = !!m.value; if (me.spectator) me.ready = false; broadcast(room); checkAutoStart(room); break;
       case "setVideoFile":
@@ -283,7 +357,7 @@ wss.on("connection", (ws) => {
           room.lastWinner = null; room.revealOutcome = "nogood"; room.revealDecided = true; broadcast(room);
         } break;
       case "continue": if (isAdmin) nextRound(room); break;
-      case "endGame": if (isAdmin) { clearTimeout(room.collectTimer); room.phase = "ended"; room.collectEnd = null; broadcast(room); broadcastRoomList(); } break;
+      case "endGame": if (isAdmin) { clearTimeout(room.collectTimer); recordEndedGame(room); room.phase = "ended"; room.collectEnd = null; broadcast(room); broadcastRoomList(); } break;
       case "resetScores": if (isAdmin) { room.scores.clear(); broadcast(room); } break;
       case "resetLobby":
         if (isAdmin) {

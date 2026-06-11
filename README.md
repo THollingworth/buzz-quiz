@@ -1,8 +1,9 @@
 # BlindZik — Blind-test & buzzer multijoueur
 
-Un petit site de jeu de buzzer en temps réel : les joueurs s'inscrivent avec un
-pseudo, l'animateur (le créateur de la partie) choisit un fichier vidéo et lance
-la partie. Le premier qui buzze met la vidéo en pause partout, un compte à rebours
+Un petit site de jeu de buzzer en temps réel. On se **connecte** (pseudo + code PIN
+à 4 chiffres), puis on choisit un mini-jeu dans le **hub** (pour l'instant BlindZik,
+le reste arrive bientôt). L'animateur (le créateur de la partie) choisit un fichier
+vidéo et lance la partie. Le premier qui buzze met la vidéo en pause partout, un compte à rebours
 de 5 s se déclenche, puis les autres votent **bonne réponse / faux**.
 
 Le serveur (Node + WebSocket) fait autorité : c'est lui qui décide du premier
@@ -70,6 +71,20 @@ Variables d'environnement disponibles :
    réponse** (personne ne marque). Puis **Manche suivante**.
 7. Le bouton **Fin de partie** (options ⚙) affiche le **classement final** : 🏆 pour
    le premier, et le dernier est sacré **« gros looser 💩 »**.
+
+## Comptes & historique
+
+La connexion est **obligatoire** : pseudo + **code PIN à 4 chiffres** (un nouveau
+pseudo crée le compte ; un pseudo existant demande son PIN). Le pseudo est unique
+et **modifiable à tout moment** (hub ou file d'attente). Le PIN est stocké **haché**.
+
+Chaque partie terminée (bouton « Fin de partie ») est enregistrée dans un
+**historique global** visible par tous, avec la date, le mini-jeu, les joueurs et
+le gagnant. Une page liste aussi le **nombre de victoires** par joueur.
+
+Tout ça est stocké dans un simple fichier JSON sous `DATA_DIR` (défaut `./data`,
+`/app/data` en Docker). **Monte un volume dessus** (`blindzik-data` dans le
+compose) pour conserver comptes et historique entre les redéploiements.
 
 ## Dossier des vidéos
 

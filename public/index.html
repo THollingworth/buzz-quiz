@@ -20,8 +20,74 @@
     </div>
   </div>
 
+  <!-- LOGIN -->
+  <section id="login" class="hidden">
+    <div class="card" style="max-width:420px;margin:0 auto;">
+      <h2>Connexion</h2>
+      <p class="sub">Choisis un pseudo et un code PIN à 4 chiffres. Un nouveau pseudo crée un compte ; un pseudo existant demande son PIN.</p>
+      <label for="loginPseudo">Pseudo</label>
+      <input type="text" id="loginPseudo" maxlength="20" placeholder="Ton pseudo" autocomplete="username">
+      <label for="loginPin" style="margin-top:12px;">Code PIN (4 chiffres)</label>
+      <input type="password" id="loginPin" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="current-password">
+      <button class="btn" id="loginBtn" style="margin-top:16px;">Se connecter</button>
+      <p class="sub" id="loginErr" style="color:var(--no);margin:10px 0 0;display:none;"></p>
+    </div>
+  </section>
+
+  <!-- HUB -->
+  <section id="hub" class="hidden">
+    <div class="card hub-head">
+      <div>
+        <h2 style="margin:0;">Salut <span id="hubPseudo">…</span> 👋</h2>
+        <p class="sub" style="margin:6px 0 0;">Choisis un mini-jeu.</p>
+      </div>
+      <div class="hub-actions">
+        <button class="btn ghost small" id="changePseudoBtn" style="width:auto;">Changer de pseudo</button>
+        <button class="btn ghost small" id="logoutBtn" style="width:auto;">Se déconnecter</button>
+      </div>
+    </div>
+
+    <div class="modes-grid">
+      <button class="mode-card available" id="modeBlindzik">
+        <div class="mode-emoji">🎵</div>
+        <div class="mode-name">BlindZik</div>
+        <div class="mode-desc">Blind-test &amp; buzzer</div>
+        <div class="mode-badge go">Jouer</div>
+      </button>
+      <div class="mode-card soon">
+        <div class="mode-emoji">✨</div>
+        <div class="mode-name">La suite arrive bientôt</div>
+        <div class="mode-desc">D'autres mini-jeux en préparation</div>
+        <div class="mode-badge">Bientôt</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;text-align:center;">
+      <button class="btn ghost" id="historyBtn">📜 Historique des parties</button>
+    </div>
+  </section>
+
+  <!-- HISTORY -->
+  <section id="history" class="hidden">
+    <div class="card hub-head">
+      <h2 style="margin:0;">Historique</h2>
+      <button class="btn ghost small" id="histBack" style="width:auto;">↩ Retour</button>
+    </div>
+    <div class="card">
+      <h2 style="font-size:18px;margin:0 0 12px;">🏆 Victoires</h2>
+      <div class="scoreboard" id="winsBoard"></div>
+    </div>
+    <div class="card">
+      <h2 style="font-size:18px;margin:0 0 12px;">Parties jouées</h2>
+      <div class="games-list" id="gamesList"></div>
+    </div>
+  </section>
+
   <!-- HOME -->
-  <section id="home">
+  <section id="home" class="hidden">
+    <div style="margin-bottom:14px;">
+      <button class="btn ghost small" id="homeBack" style="width:auto;">↩ Hub</button>
+    </div>
     <div class="card">
       <h2>Une partie de blind-test ?</h2>
       <p class="sub">Crée une partie et partage le code d'invitation, ou rejoins une partie avec le code reçu.</p>
@@ -67,9 +133,9 @@
             </div>
           </div>
 
-          <label for="nameInput">Ton pseudo <span class="req-star">*</span> <span style="font-weight:400">(obligatoire)</span></label>
-          <input type="text" id="nameInput" maxlength="20" placeholder="Comment veux-tu apparaître ?" autocomplete="off">
-          <p class="pseudo-hint" id="pseudoHint">Indispensable pour pouvoir te mettre prêt.</p>
+          <label for="nameInput">Ton pseudo <span style="font-weight:400">(modifiable)</span></label>
+          <input type="text" id="nameInput" maxlength="20" placeholder="Ton pseudo" autocomplete="off">
+          <p class="pseudo-hint" id="pseudoHint">Tu peux changer ton pseudo ici, il sera enregistré sur ton compte.</p>
 
           <div id="readyCard">
             <button class="btn" id="readyBtn" style="margin-top:14px;">Je suis prêt·e ✋</button>

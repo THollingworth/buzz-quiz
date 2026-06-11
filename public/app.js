@@ -11,9 +11,13 @@ const show = (id, on) => $(id).classList.toggle("hidden", !on);
 let myId = null, myRole = null, myName = "", myRoom = "";
 let autoJoinRoom = null, lastRoundSeen = -1;
 let buzzerMode = !!(window.matchMedia && window.matchMedia("(max-width:760px)").matches);
-let pseudoSet = false;
 let activeRooms = [];
 let state = null;
+
+/* ---------- Compte ---------- */
+let authed = false, myToken = null, myPseudo = "", myUserId = null;
+let screen = "login"; // login | hub | home | history
+try { myToken = localStorage.getItem("bz_token") || null; } catch (_) {}
 
 (function () { const r = (new URLSearchParams(location.search).get("room") || "").toUpperCase().trim(); if (r) autoJoinRoom = r; })();
 
@@ -24,8 +28,8 @@ function connect() {
   ws = new WebSocket(wsURL());
   ws.addEventListener("open", () => {
     setBadge();
-    if (myRoom && myRole) sendMsg({ type: "rejoin", room: myRoom, name: myName, wasAdmin: myRole === "admin" });
-    else if (autoJoinRoom) { const r = autoJoinRoom; autoJoinRoom = null; myRole = "player"; sendMsg({ type: "join", room: r }); }
+    if (myToken) sendMsg({ type: "resume", token: myToken });
+    else { authed = false; showView(); }
   });
   ws.addEventListener("message", (e) => { let m; try { m = JSON.parse(e.data); } catch { return; } handleServer(m); });
   ws.addEventListener("close", () => { setBadge("Reconnexion…"); clearTimeout(reconnectTimer); reconnectTimer = setTimeout(connect, 1500); });
@@ -33,17 +37,37 @@ function connect() {
 }
 function sendMsg(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 
+function saveToken(t) { myToken = t; try { if (t) localStorage.setItem("bz_token", t); else localStorage.removeItem("bz_token"); } catch (_) {} }
+
 function handleServer(m) {
-  if (m.type === "welcome") { myId = m.id; return; }
-  if (m.type === "created") { myRole = "admin"; myRoom = m.room; if (m.id) myId = m.id; return; }
-  if (m.type === "joined") { myRole = "player"; myRoom = m.room; if (m.id) myId = m.id; return; }
-  if (m.type === "join_error") { $("joinErr").style.display = "block"; myRole = null; return; }
-  if (m.type === "promoted") { myRole = "admin"; applyVideoControls(); toast("Tu es maintenant l'animateur 🎬"); return; }
-  if (m.type === "left") { resetToHome(); return; }
-  if (m.type === "vsync") { onVsync(m); return; }
-  if (m.type === "rooms") { activeRooms = m.rooms || []; renderRooms(); return; }
-  if (m.type === "notice") { toast(m.text); return; }
-  if (m.type === "state") { state = m; onState(); return; }
+  switch (m.type) {
+    case "welcome": myId = m.id; return;
+    case "authed":
+      authed = true; saveToken(m.token); myPseudo = m.pseudo; myUserId = m.userId;
+      $("hubPseudo").textContent = myPseudo; $("loginErr").style.display = "none";
+      if (myRoom && myRole) { sendMsg({ type: "rejoin", room: myRoom, wasAdmin: myRole === "admin" }); }
+      else if (autoJoinRoom) { const r = autoJoinRoom; autoJoinRoom = null; screen = "home"; joinRoom(r); }
+      else { screen = "hub"; showView(); }
+      return;
+    case "auth_fail": loginError(m.reason || "Connexion refusée."); return;
+    case "auth_error": authed = false; saveToken(null); showView(); return;
+    case "auth_required": if (authed) { authed = false; saveToken(null); showView(); } return;
+    case "loggedout":
+      authed = false; saveToken(null); myRole = null; myRoom = ""; state = null; screen = "login";
+      $("loginPseudo").value = ""; $("loginPin").value = ""; showView(); return;
+    case "pseudo_ok": myPseudo = m.pseudo; $("hubPseudo").textContent = myPseudo; toast("Pseudo mis à jour ✓"); showView(); return;
+    case "pseudo_error": toast(m.reason || "Pseudo refusé"); return;
+    case "history": renderHistory(m); return;
+    case "created": myRole = "admin"; myRoom = m.room; if (m.id) myId = m.id; return;
+    case "joined": myRole = "player"; myRoom = m.room; if (m.id) myId = m.id; return;
+    case "join_error": $("joinErr").style.display = "block"; myRole = null; return;
+    case "promoted": myRole = "admin"; applyVideoControls(); toast("Tu es maintenant l'animateur 🎬"); return;
+    case "left": resetToHome(); return;
+    case "vsync": onVsync(m); return;
+    case "rooms": activeRooms = m.rooms || []; renderRooms(); return;
+    case "notice": toast(m.text); return;
+    case "state": state = m; onState(); return;
+  }
 }
 
 /* ---------- Toast ---------- */
@@ -142,14 +166,41 @@ setInterval(() => {
 /* ============================================================
    Actions
    ============================================================ */
+/* --- Connexion --- */
+function loginError(msg) { const e = $("loginErr"); e.textContent = msg; e.style.display = "block"; }
+function doLogin() {
+  const pseudo = $("loginPseudo").value.trim();
+  const pin = $("loginPin").value.trim();
+  $("loginErr").style.display = "none";
+  if (pseudo.length < 2) { loginError("Choisis un pseudo (2 caractères min)."); return; }
+  if (!/^[0-9]{4}$/.test(pin)) { loginError("Le code PIN doit faire 4 chiffres."); return; }
+  sendMsg({ type: "auth", pseudo, pin });
+}
+$("loginBtn").onclick = doLogin;
+$("loginPin").addEventListener("input", (e) => { e.target.value = e.target.value.replace(/\D/g, "").slice(0, 4); });
+$("loginPin").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
+$("loginPseudo").addEventListener("keydown", (e) => { if (e.key === "Enter") $("loginPin").focus(); });
+
+/* --- Hub / navigation --- */
+$("modeBlindzik").onclick = () => { screen = "home"; sendMsg({ type: "listRooms" }); showView(); };
+$("historyBtn").onclick = () => { sendMsg({ type: "history" }); screen = "history"; showView(); };
+$("histBack").onclick = () => { screen = "hub"; showView(); };
+$("homeBack").onclick = () => { screen = "hub"; showView(); };
+$("logoutBtn").onclick = () => sendMsg({ type: "logout" });
+$("changePseudoBtn").onclick = () => {
+  const p = prompt("Nouveau pseudo :", myPseudo);
+  if (p && p.trim() && p.trim() !== myPseudo) sendMsg({ type: "setPseudo", pseudo: p.trim() });
+};
+
+/* --- BlindZik : créer / rejoindre --- */
 $("createBtn").onclick = () => { myRole = "admin"; sendMsg({ type: "create" }); setBadge(); };
 $("joinBtn").onclick = () => {
   const code = $("room").value.trim().toUpperCase();
   if (!code) { $("room").focus(); return; }
-  $("joinErr").style.display = "none";
-  myRole = "player"; sendMsg({ type: "join", room: code }); setBadge();
+  joinRoom(code);
 };
 $("room").addEventListener("keydown", (e) => { if (e.key === "Enter") $("joinBtn").click(); });
+function joinRoom(code) { $("joinErr").style.display = "none"; myRole = "player"; sendMsg({ type: "join", room: code }); setBadge(); }
 
 function renderRooms() {
   if (myRole !== null) { show("roomsCard", false); return; }
@@ -164,8 +215,54 @@ function renderRooms() {
   });
 }
 
+function renderHistory(h) {
+  const wb = $("winsBoard"); wb.innerHTML = "";
+  if (!h.wins || !h.wins.length) wb.innerHTML = '<span class="empty">Aucune victoire pour le moment.</span>';
+  (h.wins || []).forEach((r, i) => {
+    const d = document.createElement("div");
+    d.className = "score-row" + (r.pseudo === myPseudo ? " me" : "");
+    d.innerHTML = '<span class="rank">' + (i + 1) + '</span><span class="nm">' + escapeHtml(r.pseudo) + '</span><span class="pts">' + r.wins + "</span>";
+    wb.appendChild(d);
+  });
+  const gl = $("gamesList"); gl.innerHTML = "";
+  if (!h.games || !h.games.length) gl.innerHTML = '<span class="empty">Aucune partie jouée.</span>';
+  (h.games || []).forEach((g) => {
+    const d = document.createElement("div"); d.className = "game-item";
+    const date = new Date(g.endedAt).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const win = g.winners && g.winners.length ? "🏆 " + g.winners.map(escapeHtml).join(", ") : "Aucun gagnant";
+    const players = (g.players || []).map((p) => escapeHtml(p.pseudo) + " (" + p.points + ")").join(" · ");
+    d.innerHTML = '<div class="gi-top"><span class="gi-mode">' + escapeHtml(g.mode) + '</span><span class="gi-date">' + date + '</span></div><div class="gi-win">' + win + '</div><div class="gi-players">' + players + "</div>";
+    gl.appendChild(d);
+  });
+}
+
+/* --- Gestionnaire d'écrans --- */
+function showView() {
+  const inRoom = (myRole !== null) && !!state && ["lobby", "playing", "collecting", "reveal", "ended"].includes(state.phase);
+  const ph = state && state.phase;
+  const inGame = inRoom && ["playing", "collecting", "reveal"].includes(ph);
+  const ended = inRoom && ph === "ended";
+  const inLobby = inRoom && ph === "lobby";
+  show("login", !authed);
+  show("hub", authed && !inRoom && screen === "hub");
+  show("history", authed && !inRoom && screen === "history");
+  show("home", authed && !inRoom && screen === "home");
+  show("lobby", inLobby);
+  show("game", inGame);
+  show("endScreen", ended);
+  show("quitBtn", inRoom);
+  show("modeToggle", inRoom);
+  show("adminFab", inRoom && myRole === "admin");
+  if (!inRoom) { show("adminModal", false); }
+  setBadge();
+  if (inLobby) renderLobby();
+  else if (inGame) renderGame();
+  else if (ended) renderEnd();
+  else if (authed && screen === "home") renderRooms();
+}
+
 $("startBtn").onclick = () => sendMsg({ type: "start" });
-$("readyBtn").onclick = () => { sendRename(); if ($("nameInput").value.trim()) sendMsg({ type: "ready" }); };
+$("readyBtn").onclick = () => sendMsg({ type: "ready" });
 $("specBtn").onclick = () => { const me = meEntry(); sendMsg({ type: "spectator", value: !(me && me.spectator) }); };
 $("endToLobby").onclick = () => sendMsg({ type: "resetLobby" });
 
@@ -186,11 +283,9 @@ function resetToHome() {
   myRole = null; myRoom = ""; state = null; lastRoundSeen = -1;
   videoListLoaded = false; localFileChosen = false; loadedVideoName = null; hasVideo = false;
   try { videoEl.pause(); videoEl.removeAttribute("src"); videoEl.load(); } catch (_) {}
-  show("home", true); show("lobby", false); show("game", false); show("endScreen", false);
-  show("quitBtn", false); show("adminFab", false); show("adminModal", false); show("modeToggle", false);
-  setBadge();
+  screen = "home";
   sendMsg({ type: "listRooms" });
-  renderRooms();
+  showView();
 }
 
 let answerTimer = null;
@@ -217,23 +312,14 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-/* pseudo + invitation */
-function sendRename() {
+/* pseudo (compte) + invitation */
+function sendSetPseudo() {
   const v = $("nameInput").value.trim();
-  if (!v) return;
-  pseudoSet = true;
-  if (v !== myName) sendMsg({ type: "rename", name: v });
-  updateReadyGate();
+  if (!v || v === myPseudo) return;
+  sendMsg({ type: "setPseudo", pseudo: v });
 }
-function updateReadyGate() {
-  const has = $("nameInput").value.trim().length > 0;
-  const me = meEntry(); const spec = me && me.spectator;
-  $("readyBtn").disabled = !has || !!spec;
-  show("pseudoHint", !has);
-}
-$("nameInput").addEventListener("input", updateReadyGate);
-$("nameInput").addEventListener("change", sendRename);
-$("nameInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { sendRename(); $("nameInput").blur(); } });
+$("nameInput").addEventListener("change", sendSetPseudo);
+$("nameInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { sendSetPseudo(); $("nameInput").blur(); } });
 function inviteLink() { return location.origin + location.pathname + "?room=" + myRoom; }
 function copyText(txt, btn, label) {
   const done = () => { btn.textContent = "Copié ✓"; setTimeout(() => (btn.textContent = label), 1400); };
@@ -270,8 +356,8 @@ function mainBtn(bar, label, type, disabled, cls) {
    ============================================================ */
 function setBadge(txt) {
   const conn = txt || "En ligne";
-  $("badge").textContent = myRole === "admin" ? (myName + " · animateur · " + conn)
-    : myRole === "player" ? (myName + " · " + conn) : conn;
+  if (!authed) { $("badge").textContent = conn; return; }
+  $("badge").textContent = myRole === "admin" ? (myPseudo + " · animateur") : (myPseudo || conn);
 }
 function escapeHtml(t) { return (t || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
@@ -291,29 +377,16 @@ function renderScores(el) {
 function onState() {
   const me0 = meEntry(); if (me0) myName = me0.name;
   if (state.round !== lastRoundSeen) { lastRoundSeen = state.round; $("answerInput").value = ""; }
-  setBadge();
   const ph = state.phase;
-  const inGame = ["playing", "collecting", "reveal"].includes(ph);
-  const ended = ph === "ended";
   if (ph === "lobby" && hasVideo) unloadVideo();
   if (ph !== "lobby") stopLobbyCd();
-  show("home", myRole === null);
-  show("lobby", myRole !== null && !inGame && !ended);
-  show("game", myRole !== null && inGame);
-  show("endScreen", myRole !== null && ended);
-  show("quitBtn", myRole !== null);
-  show("modeToggle", myRole !== null);
-  show("adminFab", myRole === "admin");
   if (myRole === "admin" && !$("adminModal").classList.contains("hidden")) renderAdminModal();
-  if (myRole === null) return;
-  if (ended) renderEnd();
-  else if (!inGame) renderLobby();
-  else renderGame();
+  showView();
 }
 
 function renderLobby() {
   $("inviteCode").textContent = myRoom || "----";
-  if (document.activeElement !== $("nameInput") && (isAdmin() || pseudoSet)) $("nameInput").value = myName;
+  if (document.activeElement !== $("nameInput")) $("nameInput").value = myPseudo;
   show("adminLaunch", isAdmin());
   show("readyCard", !isAdmin());
 
@@ -336,9 +409,9 @@ function renderLobby() {
 
   const me = meEntry(); const spec = me && me.spectator;
   show("readyBtn", !spec);
+  $("readyBtn").disabled = false;
   if (!spec && me) { const r = me.ready; $("readyBtn").textContent = r ? "Annuler — pas prêt" : "Je suis prêt·e ✋"; $("readyBtn").className = "btn" + (r ? " ghost" : ""); }
   $("specBtn").textContent = spec ? "↩ Revenir joueur" : "👀 Passer spectateur";
-  updateReadyGate();
 }
 
 function renderGame() {
