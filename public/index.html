@@ -8,11 +8,11 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="hub.css">
 </head>
 <body>
 <div class="wrap">
   <div class="top">
-    <a href="/hub.html" class="hub-back" title="Retour au hub">← Hub</a>
     <div class="logo"><span class="b">Blind</span><span class="z">Zik</span></div>
     <div class="top-right">
       <div class="bz-user-info" id="bzUserInfo">
@@ -22,80 +22,14 @@
         </div>
         <span class="bz-pseudo" id="headerPseudo"></span>
       </div>
-      <div class="badge" id="badge">Connexion…</div>
       <button class="btn ghost small hidden" id="modeToggle" style="width:auto;padding:8px 12px;font-size:13px;">📱 Mode buzzer</button>
-      <button class="btn ghost small hidden" id="quitBtn" style="width:auto;padding:8px 14px;font-size:13px;">Quitter</button>
+      <a href="/hub.html" class="btn ghost small" id="menuBtn" style="width:auto;">🏠 Menu principal</a>
+      <button class="btn ghost small hidden" id="quitBtn" style="width:auto;">Quitter la partie</button>
     </div>
   </div>
 
-  <!-- LOGIN -->
-  <section id="login" class="hidden">
-    <div class="card" style="max-width:420px;margin:0 auto;">
-      <h2>Connexion</h2>
-      <p class="sub">Choisis un pseudo et un code PIN à 4 chiffres. Un nouveau pseudo crée un compte ; un pseudo existant demande son PIN.</p>
-      <label for="loginPseudo">Pseudo</label>
-      <input type="text" id="loginPseudo" maxlength="20" placeholder="Ton pseudo" autocomplete="username">
-      <label for="loginPin" style="margin-top:12px;">Code PIN (4 chiffres)</label>
-      <input type="password" id="loginPin" inputmode="numeric" maxlength="4" placeholder="••••" autocomplete="current-password">
-      <button class="btn" id="loginBtn" style="margin-top:16px;">Se connecter</button>
-      <p class="sub" id="loginErr" style="color:var(--no);margin:10px 0 0;display:none;"></p>
-    </div>
-  </section>
-
-  <!-- HUB -->
-  <section id="hub" class="hidden">
-    <div class="card hub-head">
-      <div>
-        <h2 style="margin:0;">Salut <span id="hubPseudo">…</span> 👋</h2>
-        <p class="sub" style="margin:6px 0 0;">Choisis un mini-jeu.</p>
-      </div>
-      <div class="hub-actions">
-        <button class="btn ghost small" id="changePseudoBtn" style="width:auto;">Changer de pseudo</button>
-        <button class="btn ghost small" id="logoutBtn" style="width:auto;">Se déconnecter</button>
-      </div>
-    </div>
-
-    <div class="modes-grid">
-      <button class="mode-card available" id="modeBlindzik">
-        <div class="mode-emoji">🎵</div>
-        <div class="mode-name">BlindZik</div>
-        <div class="mode-desc">Blind-test &amp; buzzer</div>
-        <div class="mode-badge go">Jouer</div>
-      </button>
-      <div class="mode-card soon">
-        <div class="mode-emoji">✨</div>
-        <div class="mode-name">La suite arrive bientôt</div>
-        <div class="mode-desc">D'autres mini-jeux en préparation</div>
-        <div class="mode-badge">Bientôt</div>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:16px;text-align:center;">
-      <button class="btn ghost" id="historyBtn">📜 Historique des parties</button>
-    </div>
-  </section>
-
-  <!-- HISTORY -->
-  <section id="history" class="hidden">
-    <div class="card hub-head">
-      <h2 style="margin:0;">Historique</h2>
-      <button class="btn ghost small" id="histBack" style="width:auto;">↩ Retour</button>
-    </div>
-    <div class="card">
-      <h2 style="font-size:18px;margin:0 0 12px;">🏆 Victoires</h2>
-      <div class="scoreboard" id="winsBoard"></div>
-    </div>
-    <div class="card">
-      <h2 style="font-size:18px;margin:0 0 12px;">Parties jouées</h2>
-      <div class="games-list" id="gamesList"></div>
-    </div>
-  </section>
-
   <!-- HOME -->
-  <section id="home" class="hidden">
-    <div style="margin-bottom:14px;">
-      <button class="btn ghost small" id="homeBack" style="width:auto;">↩ Hub</button>
-    </div>
+  <section id="home">
     <div class="card">
       <h2>Une partie de blind-test ?</h2>
       <p class="sub">Crée une partie et partage le code d'invitation, ou rejoins une partie avec le code reçu.</p>
@@ -251,6 +185,39 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- Modal profil (accessible depuis BlindZik) -->
+<div class="modal hidden" id="bzProfileModal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2>Mon profil</h2>
+      <button class="modal-close" id="bzCloseProfile">✕</button>
+    </div>
+    <div class="profile-avatar-section">
+      <div class="profile-avatar-wrap">
+        <img class="profile-avatar-img" id="bzProfileAvatarImg" src="" alt="" style="display:none">
+        <div class="profile-avatar-fallback" id="bzProfileAvatarFallback"></div>
+      </div>
+      <label class="btn ghost small" for="bzAvatarFile" style="cursor:pointer;">📷 Changer la photo</label>
+      <input type="file" id="bzAvatarFile" accept="image/*" style="display:none">
+    </div>
+    <div class="profile-section">
+      <label>Pseudo</label>
+      <div class="row">
+        <input type="text" id="bzPseudoInput" maxlength="20" placeholder="Ton pseudo">
+        <button class="btn ghost small" id="bzSavePseudo" style="width:auto;">Sauvegarder</button>
+      </div>
+      <p class="hint" id="bzPseudoMsg"></p>
+    </div>
+    <div class="profile-section">
+      <label>Historique des parties (10 dernières)</label>
+      <div class="history-list" id="bzHistoryList"><span class="empty">Chargement…</span></div>
+    </div>
+    <div style="margin-top:18px;">
+      <button class="btn ghost" id="bzLogoutBtn">🚪 Se déconnecter</button>
+    </div>
+  </div>
+</div>
 
 <script>
 // Auth check - redirect to login if not authenticated
