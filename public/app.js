@@ -9,6 +9,8 @@ const show = (id, on) => $(id).classList.toggle("hidden", !on);
 
 /* ---------- Identite / etat ---------- */
 let myId = null, myRole = null, myName = "", myRoom = "";
+// Pre-fill pseudo from hub auth
+if (window._spmgUser) { myName = window._spmgUser.pseudo; }
 let autoJoinRoom = null, lastRoundSeen = -1;
 let buzzerMode = !!(window.matchMedia && window.matchMedia("(max-width:760px)").matches);
 let activeRooms = [];
@@ -27,6 +29,11 @@ function wsURL() { return (location.protocol === "https:" ? "wss" : "ws") + "://
 function connect() {
   ws = new WebSocket(wsURL());
   ws.addEventListener("open", () => {
+    // Pre-fill name input with hub pseudo
+    if (myName && document.getElementById("nameInput")) {
+      const ni = document.getElementById("nameInput");
+      if (!ni.value) ni.value = myName;
+    }
     setBadge();
     if (myToken) sendMsg({ type: "resume", token: myToken });
     else { authed = false; showView(); }
@@ -359,17 +366,29 @@ function setBadge(txt) {
   if (!authed) { $("badge").textContent = conn; return; }
   $("badge").textContent = myRole === "admin" ? (myPseudo + " · animateur") : (myPseudo || conn);
 }
+
+function avatarHtml(avatar, name, cls) {
+  const ini = (name || '?').slice(0, 2).toUpperCase();
+  if (avatar) return '<img class="' + cls + '" src="/avatars/' + escapeHtml(avatar) + '" alt="">';
+  return '<div class="' + cls + '-fallback">' + ini + '</div>';
+}
+
 function escapeHtml(t) { return (t || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 
 function renderScores(el) {
   if (!el) return;
-  const s = (state && state.scores) || [];
+  const rawScores = (state && state.scores) || [];
+  const players = (state && state.players) || [];
+  const s = rawScores.map(r => {
+    const p = players.find(pl => pl.name === r.name);
+    return { ...r, avatar: p ? p.avatar : null };
+  });
   el.innerHTML = "";
   if (s.length === 0) { el.innerHTML = '<span class="empty">Pas encore de points.</span>'; return; }
   s.forEach((row, i) => {
     const d = document.createElement("div");
     d.className = "score-row" + (row.name === myName ? " me" : "");
-    d.innerHTML = '<span class="rank">' + (i + 1) + '</span><span class="nm">' + escapeHtml(row.name) + '</span><span class="pts">' + row.points + "</span>";
+    d.innerHTML = '<span class="rank">' + (i + 1) + '</span>' + avatarHtml(row.avatar, row.name, 'savatar') + '<span class="nm">' + escapeHtml(row.name) + '</span><span class="pts">' + row.points + "</span>";
     el.appendChild(d);
   });
 }
@@ -403,7 +422,7 @@ function renderLobby() {
     row.className = "prow" + (p.id === myId ? " me" : "");
     const ok = p.ready && !p.spectator ? " ok" : "";
     const tag = p.isAdmin ? '<span class="ptag">👑 animateur</span>' : p.spectator ? '<span class="ptag">👀 spectateur</span>' : "";
-    row.innerHTML = '<span class="pdot' + ok + '"></span><span class="pnm">' + escapeHtml(p.name) + (p.id === myId ? " (toi)" : "") + "</span>" + tag;
+    row.innerHTML = avatarHtml(p.avatar, p.name, 'pavatar') + '<span class="pdot' + ok + '"></span><span class="pnm">' + escapeHtml(p.name) + (p.id === myId ? " (toi)" : "") + "</span>" + tag;
     list.appendChild(row);
   });
 
@@ -501,7 +520,7 @@ function renderReveal(s, spec) {
     const crown = isWin ? ' <span class="crown">🏆</span>' : "";
     const canVote = !s.revealDecided && !spec;
     const btn = canVote ? '<button class="vote-btn" data-id="' + b.id + '"' + (myVote === b.id ? " disabled" : "") + ">" + (myVote === b.id ? "Voté ✓" : "Voter") + "</button>" : "";
-    row.innerHTML = '<div class="rk">' + (i + 1) + '</div><div class="info"><div class="who">' + escapeHtml(b.name) + crown + ' <span class="dt">' + dt + "</span>" + vc + "</div>" + ans + "</div>" + btn;
+    row.innerHTML = '<div class="rk">' + (i + 1) + '</div>' + avatarHtml(b.avatar, b.name, 'bavatar') + '<div class="info"><div class="who">' + escapeHtml(b.name) + crown + ' <span class="dt">' + dt + "</span>" + vc + "</div>" + ans + "</div>" + btn;
     list.appendChild(row);
   });
   list.querySelectorAll(".vote-btn").forEach((btn) => { btn.onclick = () => sendMsg({ type: "voteWinner", candidateId: btn.getAttribute("data-id") }); });

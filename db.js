@@ -1,106 +1,171 @@
 /* ============================================================
-   BlindZik — Stockage persistant (fichier JSON) + comptes
-   Comptes : pseudo (unique, modifiable) + PIN 4 chiffres (haché).
-   Historique global des parties + nombre de victoires par joueur.
+   Suce Pute MiniGames — SQLite (sql.js) persistence
+   Users: mail + bcrypt password + pseudo + avatar
+   Sessions: httpOnly cookie tokens
+   Games: historique parties BlindZik
    ============================================================ */
 "use strict";
 
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
+const initSqlJs = require("sql.js");
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
-const FILE = path.join(DATA_DIR, "db.json");
+const DB_FILE = path.join(DATA_DIR, "app.sqlite");
 
-let data = { users: {}, sessions: {}, games: [] };
+let db = null;
 
-function load() {
-  try {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-    if (fs.existsSync(FILE)) data = JSON.parse(fs.readFileSync(FILE, "utf8"));
-  } catch (e) { console.error("db load error:", e.message); }
-  data.users = data.users || {};
-  data.sessions = data.sessions || {};
-  data.games = data.games || [];
+async function load() {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  const SQL = await initSqlJs();
+  if (fs.existsSync(DB_FILE)) {
+    const buf = fs.readFileSync(DB_FILE);
+    db = new SQL.Database(buf);
+  } else {
+    db = new SQL.Database();
+  }
+  db.run(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      mail TEXT UNIQUE NOT NULL,
+      password TEXT NOT NULL,
+      pseudo TEXT NOT NULL,
+      avatar TEXT DEFAULT NULL,
+      wins INTEGER DEFAULT 0,
+      created_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      created_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS games (
+      id TEXT PRIMARY KEY,
+      game_type TEXT NOT NULL,
+      played_at INTEGER,
+      players TEXT,
+      winner TEXT,
+      scores TEXT
+    );
+  `);
+  persist();
 }
 
 let saveTimer = null;
-function save() {
+function persist() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    try { fs.writeFileSync(FILE, JSON.stringify(data)); }
-    catch (e) { console.error("db save error:", e.message); }
-  }, 120);
+    try {
+      const data = db.export();
+      fs.writeFileSync(DB_FILE, Buffer.from(data));
+    } catch (e) { console.error("db save error:", e.message); }
+  }, 200);
 }
 
-/* ---------- PIN ---------- */
-function hashPin(pin) {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const h = crypto.scryptSync(String(pin), salt, 64).toString("hex");
-  return salt + ":" + h;
+function q1(sql, params = []) {
+  const stmt = db.prepare(sql);
+  stmt.bind(params);
+  if (stmt.step()) { const r = stmt.getAsObject(); stmt.free(); return r; }
+  stmt.free(); return null;
 }
-function verifyPin(pin, stored) {
-  try {
-    const [salt, h] = String(stored).split(":");
-    const h2 = crypto.scryptSync(String(pin), salt, 64).toString("hex");
-    return crypto.timingSafeEqual(Buffer.from(h, "hex"), Buffer.from(h2, "hex"));
-  } catch { return false; }
+function qAll(sql, params = []) {
+  const stmt = db.prepare(sql);
+  const rows = [];
+  stmt.bind(params);
+  while (stmt.step()) rows.push(stmt.getAsObject());
+  stmt.free();
+  return rows;
 }
-function validPin(pin) { return /^[0-9]{4}$/.test(String(pin)); }
+function run(sql, params = []) {
+  db.run(sql, params);
+  persist();
+}
+
+/* ---------- Validation ---------- */
+function validMail(m) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(m || "")); }
 function validPseudo(p) { const s = String(p || "").trim(); return s.length >= 2 && s.length <= 20; }
+function validPassword(p) { return String(p || "").length >= 6; }
 
-/* ---------- Comptes ---------- */
-function findByPseudo(pseudo) {
-  const k = String(pseudo).trim().toLowerCase();
-  return Object.values(data.users).find((u) => u.pseudo.toLowerCase() === k) || null;
+/* ---------- Users ---------- */
+function findByMail(mail) {
+  return q1("SELECT * FROM users WHERE LOWER(mail)=LOWER(?)", [mail]);
+}
+function findById(id) {
+  return q1("SELECT * FROM users WHERE id=?", [id]);
 }
 function pseudoTaken(pseudo, exceptId) {
-  const k = String(pseudo).trim().toLowerCase();
-  return Object.values(data.users).some((u) => u.pseudo.toLowerCase() === k && u.id !== exceptId);
+  const r = q1("SELECT id FROM users WHERE LOWER(pseudo)=LOWER(?) AND id!=?", [pseudo, exceptId || ""]);
+  return !!r;
 }
-function createUser(pseudo, pin) {
+async function createUser(mail, password, pseudo) {
   const id = "u" + crypto.randomBytes(6).toString("hex");
-  data.users[id] = { id, pseudo: String(pseudo).trim(), pin: hashPin(pin), wins: 0, createdAt: Date.now() };
-  save();
-  return data.users[id];
+  const hash = await bcrypt.hash(password, 10);
+  run("INSERT INTO users (id,mail,password,pseudo,wins,created_at) VALUES (?,?,?,?,0,?)",
+    [id, mail.toLowerCase().trim(), hash, pseudo.trim(), Date.now()]);
+  return findById(id);
 }
-function getUser(id) { return data.users[id] || null; }
+async function checkPassword(mail, password) {
+  const user = findByMail(mail);
+  if (!user) return null;
+  const ok = await bcrypt.compare(password, user.password);
+  return ok ? user : null;
+}
 function setPseudo(userId, pseudo) {
-  if (data.users[userId]) { data.users[userId].pseudo = String(pseudo).trim(); save(); }
+  run("UPDATE users SET pseudo=? WHERE id=?", [pseudo.trim(), userId]);
+}
+function setAvatar(userId, filename) {
+  run("UPDATE users SET avatar=? WHERE id=?", [filename, userId]);
 }
 function addWin(userId) {
-  if (data.users[userId]) { data.users[userId].wins = (data.users[userId].wins || 0) + 1; save(); }
+  run("UPDATE users SET wins=wins+1 WHERE id=?", [userId]);
 }
+function getUser(id) { return findById(id); }
 
 /* ---------- Sessions ---------- */
 function newSession(userId) {
-  const t = crypto.randomBytes(24).toString("hex");
-  data.sessions[t] = userId;
-  save();
-  return t;
+  const token = crypto.randomBytes(32).toString("hex");
+  run("INSERT INTO sessions (token,user_id,created_at) VALUES (?,?,?)",
+    [token, userId, Date.now()]);
+  return token;
 }
-function userByToken(t) {
-  const id = t && data.sessions[t];
-  return id ? (data.users[id] || null) : null;
+function userByToken(token) {
+  if (!token) return null;
+  const s = q1("SELECT user_id FROM sessions WHERE token=?", [token]);
+  if (!s) return null;
+  return findById(s.user_id);
 }
-function dropSession(t) { if (t && data.sessions[t]) { delete data.sessions[t]; save(); } }
+function dropSession(token) {
+  if (token) run("DELETE FROM sessions WHERE token=?", [token]);
+}
 
-/* ---------- Historique ---------- */
+/* ---------- Games ---------- */
 function recordGame(g) {
-  data.games.unshift(g);
-  if (data.games.length > 500) data.games.length = 500;
-  save();
+  const id = "g" + crypto.randomBytes(6).toString("hex");
+  run("INSERT INTO games (id,game_type,played_at,players,winner,scores) VALUES (?,?,?,?,?,?)",
+    [id, g.game_type || "blindzik", g.played_at || Date.now(),
+     JSON.stringify(g.players || []), g.winner || "", JSON.stringify(g.scores || [])]);
 }
-function recentGames(n) { return data.games.slice(0, n || 50); }
-function winsBoard() {
-  return Object.values(data.users)
-    .map((u) => ({ pseudo: u.pseudo, wins: u.wins || 0 }))
-    .sort((a, b) => b.wins - a.wins || a.pseudo.localeCompare(b.pseudo));
+function recentGames(n) {
+  const rows = qAll("SELECT * FROM games ORDER BY played_at DESC LIMIT ?", [n || 50]);
+  return rows.map(r => ({
+    ...r,
+    players: JSON.parse(r.players || "[]"),
+    scores: JSON.parse(r.scores || "[]")
+  }));
+}
+function userGames(userId, n) {
+  // games where user participated (pseudo stored in scores array)
+  const all = recentGames(500);
+  // filter by userId presence in scores
+  return all.filter(g => g.scores.some(s => s.userId === userId)).slice(0, n || 10);
 }
 
 module.exports = {
-  load, save, hashPin, verifyPin, validPin, validPseudo,
-  findByPseudo, pseudoTaken, createUser, getUser, setPseudo, addWin,
+  load, persist, validMail, validPseudo, validPassword,
+  findByMail, findById, pseudoTaken, createUser, checkPassword,
+  setPseudo, setAvatar, addWin, getUser,
   newSession, userByToken, dropSession,
-  recordGame, recentGames, winsBoard
+  recordGame, recentGames, userGames
 };

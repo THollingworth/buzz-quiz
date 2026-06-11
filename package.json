@@ -1,7 +1,7 @@
 {
-  "name": "blindzik",
+  "name": "suce-pute-minigames",
   "version": "1.0.0",
-  "description": "BlindZik — jeu de buzzer / blind-test multijoueur en temps reel (WebSocket).",
+  "description": "Suce Pute MiniGames — Hub de mini-jeux multijoueur",
   "type": "commonjs",
   "main": "server.js",
   "scripts": {
@@ -12,7 +12,11 @@
     "node": ">=18"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
     "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "sql.js": "^1.12.0",
     "ws": "^8.18.0"
   }
 }

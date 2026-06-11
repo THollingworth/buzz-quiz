@@ -339,3 +339,52 @@ body.buzzer-mode .buzz-hint{ font-size:15px; }
 .game-item .gi-win{font-size:13px;color:var(--spotlight);font-weight:600;margin-top:4px;}
 .game-item .gi-players{font-size:13px;color:var(--muted);margin-top:3px;}
 @media(max-width:560px){.modes-grid{grid-template-columns:1fr;}}
+
+/* ---- Hub back + user header (BlindZik dans le hub) ---- */
+.hub-back {
+  font-size: 13px; font-weight: 600; color: var(--muted);
+  text-decoration: none; padding: 7px 12px;
+  border: 1px solid var(--line); border-radius: 999px;
+  transition: color .15s, border-color .15s;
+}
+.hub-back:hover { color: var(--ink); border-color: var(--spotlight); }
+.bz-user-info {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel);
+}
+.bz-pseudo { font-size: 13px; font-weight: 600; color: var(--ink); }
+.bz-avatar-wrap { position: relative; width: 28px; height: 28px; }
+.bz-avatar-img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; display: block; }
+.bz-avatar-fallback {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: linear-gradient(135deg, #7c3aed, #f472b6);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-weight: 700; font-size: 11px; color: #fff;
+}
+
+/* ---- Avatar dans liste joueurs BlindZik ---- */
+.prow .pavatar { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; }
+.prow .pavatar-fallback {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: linear-gradient(135deg, #7c3aed, #f472b6);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-weight: 700; font-size: 10px; color: #fff;
+  flex: 0 0 auto;
+}
+.score-row .savatar { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; }
+.score-row .savatar-fallback {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: linear-gradient(135deg, #7c3aed, #f472b6);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-weight: 700; font-size: 9px; color: #fff;
+  flex: 0 0 auto;
+}
+.buzz-row .bavatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; }
+.buzz-row .bavatar-fallback {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, #7c3aed, #f472b6);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-weight: 700; font-size: 12px; color: #fff;
+  flex: 0 0 auto;
+}

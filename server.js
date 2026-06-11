@@ -1,6 +1,6 @@
 /* ============================================================
-   BlindZik — Serveur de jeu (Node + Express + WebSocket)
-   La video est un fichier local cote client (pas de synchro reseau).
+   Suce Pute MiniGames — Serveur principal
+   Hub + Auth (mail/mdp/cookie) + BlindZik WebSocket
    ============================================================ */
 "use strict";
 
@@ -8,29 +8,152 @@ const path = require("path");
 const http = require("http");
 const fs = require("fs");
 const express = require("express");
+const cookieParser = require("cookie-parser");
+const multer = require("multer");
 const { WebSocketServer } = require("ws");
 const db = require("./db");
-db.load();
 
 const PORT = process.env.PORT || 3000;
 const COLLECT_MS = Number(process.env.COLLECT_MS || 5000);
+const COOKIE_SECRET = process.env.COOKIE_SECRET || "spmg-secret-change-in-prod";
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
+const AVATAR_DIR = path.join(DATA_DIR, "avatars");
 const VIDEO_DIR = path.join(__dirname, "public", "videos");
 const VIDEO_RE = /\.(mp4|webm|ogg|ogv|m4v|mov)$/i;
 
+fs.mkdirSync(AVATAR_DIR, { recursive: true });
+fs.mkdirSync(VIDEO_DIR, { recursive: true });
+
 const app = express();
+app.use(express.json());
+app.use(cookieParser(COOKIE_SECRET));
 app.use(express.static(path.join(__dirname, "public")));
-app.get("/healthz", (_req, res) => res.json({ ok: true }));
-// liste des videos disponibles dans public/videos/
-app.get("/api/videos", (_req, res) => {
-  fs.readdir(VIDEO_DIR, (err, files) => {
-    if (err) return res.json({ videos: [] });
-    res.json({ videos: files.filter((f) => VIDEO_RE.test(f)).sort() });
+app.use("/avatars", express.static(AVATAR_DIR));
+
+/* ---------- Auth middleware ---------- */
+function requireAuth(req, res, next) {
+  const token = req.signedCookies && req.signedCookies.session;
+  const user = db.userByToken(token);
+  if (!user) return res.status(401).json({ error: "auth_required" });
+  req.user = user;
+  next();
+}
+function setSession(res, token) {
+  res.cookie("session", token, {
+    signed: true, httpOnly: true, sameSite: "lax",
+    maxAge: 30 * 24 * 3600 * 1000 // 30 jours
+  });
+}
+
+/* ---------- Avatar upload ---------- */
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, AVATAR_DIR),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || ".jpg";
+    cb(null, req.user.id + ext);
+  }
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) cb(null, true);
+    else cb(new Error("Image only"));
+  }
+});
+
+/* ============================================================
+   Routes Auth
+   ============================================================ */
+app.post("/api/auth/register", async (req, res) => {
+  const { mail, password, pseudo } = req.body || {};
+  if (!db.validMail(mail)) return res.status(400).json({ error: "Mail invalide" });
+  if (!db.validPassword(password)) return res.status(400).json({ error: "Mot de passe trop court (6 min)" });
+  if (!db.validPseudo(pseudo)) return res.status(400).json({ error: "Pseudo invalide (2-20 caractères)" });
+  if (db.findByMail(mail)) return res.status(409).json({ error: "Mail déjà utilisé" });
+  if (db.pseudoTaken(pseudo, null)) return res.status(409).json({ error: "Pseudo déjà pris" });
+  const user = await db.createUser(mail, password, pseudo);
+  const token = db.newSession(user.id);
+  setSession(res, token);
+  res.json({ ok: true, user: safeUser(user) });
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  const { mail, password } = req.body || {};
+  const user = await db.checkPassword(mail, password);
+  if (!user) return res.status(401).json({ error: "Mail ou mot de passe incorrect" });
+  const token = db.newSession(user.id);
+  setSession(res, token);
+  res.json({ ok: true, user: safeUser(user) });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  const token = req.signedCookies && req.signedCookies.session;
+  db.dropSession(token);
+  res.clearCookie("session");
+  res.json({ ok: true });
+});
+
+app.get("/api/auth/me", (req, res) => {
+  const token = req.signedCookies && req.signedCookies.session;
+  const user = db.userByToken(token);
+  if (!user) return res.json({ user: null });
+  res.json({ user: safeUser(user) });
+});
+
+function safeUser(u) {
+  return { id: u.id, mail: u.mail, pseudo: u.pseudo, avatar: u.avatar || null, wins: u.wins || 0 };
+}
+
+/* ============================================================
+   Routes Profil
+   ============================================================ */
+app.post("/api/profile/pseudo", requireAuth, (req, res) => {
+  const { pseudo } = req.body || {};
+  if (!db.validPseudo(pseudo)) return res.status(400).json({ error: "Pseudo invalide" });
+  if (db.pseudoTaken(pseudo, req.user.id)) return res.status(409).json({ error: "Pseudo déjà pris" });
+  db.setPseudo(req.user.id, pseudo);
+  res.json({ ok: true, pseudo: pseudo.trim() });
+});
+
+app.post("/api/profile/avatar", requireAuth, (req, res, next) => {
+  upload.single("avatar")(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    if (!req.file) return res.status(400).json({ error: "Pas de fichier" });
+    const filename = req.file.filename;
+    db.setAvatar(req.user.id, filename);
+    res.json({ ok: true, avatar: filename });
   });
 });
 
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+app.get("/api/profile/history", requireAuth, (req, res) => {
+  const games = db.userGames(req.user.id, 10);
+  res.json({ games });
+});
 
+/* ============================================================
+   Routes BlindZik
+   ============================================================ */
+app.get("/api/videos", requireAuth, (_req, res) => {
+  fs.readdir(VIDEO_DIR, (err, files) => {
+    if (err) return res.json({ videos: [] });
+    res.json({ videos: files.filter(f => VIDEO_RE.test(f)).sort() });
+  });
+});
+
+app.get("/healthz", (_req, res) => res.json({ ok: true }));
+
+// Root redirect: auth check, send to hub or auth page
+app.get("/", (req, res) => {
+  const token = req.signedCookies && req.signedCookies.session;
+  const user = db.userByToken(token);
+  if (user) res.redirect("/hub.html");
+  else res.redirect("/auth.html");
+});
+
+/* ============================================================
+   BlindZik — Logique jeu WebSocket
+   ============================================================ */
 const rooms = new Map();
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
@@ -57,18 +180,21 @@ function scoreboard(room) {
   return [...seen.entries()].map(([name, points]) => ({ name, points }))
     .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
 }
-
 function publicState(room) {
   const reveal = room.phase === "reveal";
+  // build players list with avatar info
+  const players = [...room.clients.entries()].map(([id, c]) => ({
+    id, name: c.name, ready: c.ready, isAdmin: c.isAdmin, spectator: c.spectator,
+    avatar: c.avatar || null
+  }));
   return {
     type: "state", room: room.code, phase: room.phase, round: room.round, video: room.video,
-    buzzes: room.buzzes.map((b) => ({ id: b.id, name: b.name, at: b.at, answer: reveal ? b.answer : "" })),
+    buzzes: room.buzzes.map(b => ({ id: b.id, name: b.name, at: b.at, answer: reveal ? b.answer : "", avatar: b.avatar || null })),
     collectRemaining: room.collectEnd ? Math.max(0, room.collectEnd - Date.now()) : 0,
     lobbyCountdownRemaining: room.lobbyCountdownEnd ? Math.max(0, room.lobbyCountdownEnd - Date.now()) : 0,
     revealVotes: [...room.revealVotes.entries()].map(([voter, cand]) => ({ voter, cand })),
     revealDecided: room.revealDecided, lastWinner: room.lastWinner, revealOutcome: room.revealOutcome,
-    players: [...room.clients.entries()].map(([id, c]) => ({ id, name: c.name, ready: c.ready, isAdmin: c.isAdmin, spectator: c.spectator })),
-    scores: scoreboard(room)
+    players, scores: scoreboard(room)
   };
 }
 function broadcast(room) {
@@ -89,18 +215,16 @@ function relayVsync(room) {
   const msg = JSON.stringify({ type: "vsync", time: room.vsync.time, playing: room.vsync.playing });
   for (const c of room.clients.values()) if (!c.isAdmin && c.ws.readyState === 1) c.ws.send(msg);
 }
-
 function startCollect(room) {
-  room.phase = "collecting";
-  room.collectEnd = Date.now() + COLLECT_MS;
+  room.phase = "collecting"; room.collectEnd = Date.now() + COLLECT_MS;
   clearTimeout(room.collectTimer);
   room.collectTimer = setTimeout(() => {
     if (room.phase === "collecting") { room.phase = "playing"; room.collectEnd = null; broadcast(room); }
   }, COLLECT_MS);
 }
-function addBuzz(room, id, name) {
-  if (room.buzzes.some((b) => b.id === id)) return false;
-  room.buzzes.push({ id, name, at: Date.now(), answer: "" });
+function addBuzz(room, id, name, avatar) {
+  if (room.buzzes.some(b => b.id === id)) return false;
+  room.buzzes.push({ id, name, at: Date.now(), answer: "", avatar: avatar || null });
   return true;
 }
 function doReveal(room) {
@@ -118,7 +242,6 @@ function closeReveal(room) {
     if (c > best) { best = c; winners = [b]; }
     else if (c === best) winners.push(b);
   }
-  // point uniquement si UN seul gagnant avec au moins 1 vote ; egalite -> annule
   if (winners.length === 1 && best > 0) {
     const winner = winners[0];
     room.scores.set(winner.name, (room.scores.get(winner.name) || 0) + 1);
@@ -142,29 +265,6 @@ function nextRound(room) {
   room.revealDecided = false; room.lastWinner = null; room.revealOutcome = null; room.round = (room.round || 0) + 1;
   broadcast(room);
 }
-// enregistre la partie terminee dans l'historique global et credite les victoires
-function recordEndedGame(room) {
-  const board = scoreboard(room); // [{ name, points }] tries
-  if (!board.length) return;
-  const max = board[0].points;
-  const winners = board.filter((b) => b.points === max && max > 0).map((b) => b.name);
-  db.recordGame({
-    id: "g" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
-    mode: "BlindZik",
-    endedAt: Date.now(),
-    players: board.map((b) => ({ pseudo: b.name, points: b.points })),
-    winners
-  });
-  if (max > 0) {
-    const credited = new Set();
-    for (const [, c] of active(room)) {
-      if (c.userId && !credited.has(c.userId) && (room.scores.get(c.name) || 0) === max) {
-        db.addWin(c.userId); credited.add(c.userId);
-      }
-    }
-  }
-}
-
 function cancelLobbyCountdown(room) {
   if (room.lobbyTimer) { clearTimeout(room.lobbyTimer); room.lobbyTimer = null; room.lobbyCountdownEnd = null; return true; }
   return false;
@@ -176,7 +276,6 @@ function startGame(room) {
   room.collectEnd = null; clearTimeout(room.collectTimer);
   broadcast(room); broadcastRoomList();
 }
-// lance un compte a rebours de 5 s quand tous les joueurs actifs (>=2) sont prets
 function checkAutoStart(room) {
   if (room.phase !== "lobby") return;
   const act = active(room);
@@ -192,85 +291,77 @@ function checkAutoStart(room) {
   }
 }
 
+/* ---------- Record game to DB on endGame ---------- */
+function recordEndGame(room) {
+  const sc = scoreboard(room);
+  if (sc.length === 0) return;
+  // find winner (top score)
+  const winner = sc[0].points > 0 ? sc[0].name : null;
+  // add win to DB user
+  if (winner) {
+    // find user by pseudo in clients
+    for (const [, c] of room.clients) {
+      if (c.name === winner && c.userId) { db.addWin(c.userId); break; }
+    }
+  }
+  // build scores with userId for history lookup
+  const scores = sc.map(s => {
+    let userId = null;
+    for (const [, c] of room.clients) { if (c.name === s.name) { userId = c.userId; break; } }
+    return { name: s.name, points: s.points, userId };
+  });
+  db.recordGame({
+    game_type: "blindzik",
+    played_at: Date.now(),
+    players: [...room.clients.values()].map(c => c.name),
+    winner: winner || "",
+    scores
+  });
+}
+
+/* ============================================================
+   WebSocket
+   ============================================================ */
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
 let idSeq = 1;
-wss.on("connection", (ws) => {
+wss.on("connection", (ws, req) => {
   ws.clientId = "c" + idSeq++ + Math.random().toString(36).slice(2, 6);
   ws.roomCode = null;
-  ws.userId = null;
-  ws.pseudo = null;
-  ws.token = null;
-  send(ws, { type: "welcome", id: ws.clientId });
+
+  // Auth from cookie
+  const rawCookie = req.headers.cookie || "";
+  let wsUser = null;
+  try {
+    // parse signed cookie manually
+    const match = rawCookie.match(/session=s%3A([^;]+)/);
+    if (match) {
+      const raw = decodeURIComponent(match[1]);
+      // express signed cookie format: value.signature
+      const dot = raw.lastIndexOf(".");
+      const val = raw.substring(0, dot);
+      wsUser = db.userByToken(val);
+    }
+  } catch (_) {}
+
+  ws.userId = wsUser ? wsUser.id : null;
+  ws.userName = wsUser ? wsUser.pseudo : null;
+  ws.userAvatar = wsUser ? (wsUser.avatar || null) : null;
+
+  send(ws, { type: "welcome", id: ws.clientId, authenticated: !!wsUser, pseudo: ws.userName, avatar: ws.userAvatar });
+  send(ws, { type: "rooms", rooms: roomSummary() });
 
   ws.on("message", (raw) => {
     let m; try { m = JSON.parse(raw.toString()); } catch { return; }
-
-    /* ---------- Authentification ---------- */
-    if (m.type === "resume") {
-      const u = db.userByToken(m.token);
-      if (!u) { send(ws, { type: "auth_error" }); return; }
-      ws.userId = u.id; ws.pseudo = u.pseudo; ws.token = m.token;
-      send(ws, { type: "authed", token: m.token, pseudo: u.pseudo, userId: u.id });
-      send(ws, { type: "rooms", rooms: roomSummary() });
-      return;
-    }
-    if (m.type === "auth") {
-      const pseudo = String(m.pseudo || "").trim();
-      const pin = String(m.pin || "");
-      if (!db.validPseudo(pseudo)) { send(ws, { type: "auth_fail", reason: "Pseudo : entre 2 et 20 caractères." }); return; }
-      if (!db.validPin(pin)) { send(ws, { type: "auth_fail", reason: "Le code PIN doit faire 4 chiffres." }); return; }
-      let u = db.findByPseudo(pseudo);
-      const isNew = !u;
-      if (u) { if (!db.verifyPin(pin, u.pin)) { send(ws, { type: "auth_fail", reason: "Code PIN incorrect pour ce pseudo." }); return; } }
-      else { u = db.createUser(pseudo, pin); }
-      const token = db.newSession(u.id);
-      ws.userId = u.id; ws.pseudo = u.pseudo; ws.token = token;
-      send(ws, { type: "authed", token, pseudo: u.pseudo, userId: u.id, created: isNew });
-      send(ws, { type: "rooms", rooms: roomSummary() });
-      return;
-    }
-    if (m.type === "logout") {
-      if (ws.roomCode) leaveRoom(ws);
-      db.dropSession(ws.token);
-      ws.userId = null; ws.pseudo = null; ws.token = null;
-      send(ws, { type: "loggedout" });
-      return;
-    }
-
-    /* ---------- A partir d'ici : connexion requise ---------- */
-    if (!ws.userId) { send(ws, { type: "auth_required" }); return; }
-
-    if (m.type === "setPseudo") {
-      const pseudo = String(m.pseudo || "").trim();
-      if (!db.validPseudo(pseudo)) { send(ws, { type: "pseudo_error", reason: "Pseudo : entre 2 et 20 caractères." }); return; }
-      if (db.pseudoTaken(pseudo, ws.userId)) { send(ws, { type: "pseudo_error", reason: "Ce pseudo est déjà pris." }); return; }
-      const old = ws.pseudo;
-      db.setPseudo(ws.userId, pseudo);
-      ws.pseudo = pseudo;
-      send(ws, { type: "pseudo_ok", pseudo });
-      const r = ws.roomCode && rooms.get(ws.roomCode);
-      if (r) {
-        const c = r.clients.get(ws.clientId);
-        if (c) {
-          c.name = pseudo;
-          if (r.scores.has(old)) { r.scores.set(pseudo, r.scores.get(old)); r.scores.delete(old); }
-          for (const b of r.buzzes) if (b.id === ws.clientId) b.name = pseudo;
-          if (r.lastWinner && r.lastWinner.id === ws.clientId) r.lastWinner.name = pseudo;
-          broadcast(r);
-        }
-      }
-      return;
-    }
-    if (m.type === "history") {
-      send(ws, { type: "history", wins: db.winsBoard(), games: db.recentGames(50) });
-      return;
-    }
     if (m.type === "listRooms") { send(ws, { type: "rooms", rooms: roomSummary() }); return; }
 
     if (m.type === "create") {
       if (ws.roomCode) leaveRoom(ws);
       const code = genCode(); const room = createRoomObj(code); rooms.set(code, room);
       ws.roomCode = code;
-      room.clients.set(ws.clientId, { ws, userId: ws.userId, name: ws.pseudo, isAdmin: true, ready: true, spectator: false });
+      const name = ws.userName || (m.name || "Hôte").toString().slice(0, 20) || "Hôte";
+      room.clients.set(ws.clientId, { ws, name, isAdmin: true, ready: true, spectator: false, userId: ws.userId, avatar: ws.userAvatar });
       send(ws, { type: "created", room: code, id: ws.clientId });
       broadcast(room); broadcastRoomList(); return;
     }
@@ -279,14 +370,13 @@ wss.on("connection", (ws) => {
       const room = rooms.get(code);
       if (!room) { send(ws, { type: "join_error" }); return; }
       if (ws.roomCode && ws.roomCode !== code) leaveRoom(ws);
-      ws.roomCode = code;
-      room.clients.set(ws.clientId, { ws, userId: ws.userId, name: ws.pseudo, isAdmin: false, ready: false, spectator: false });
+      ws.roomCode = code; room.seq = (room.seq || 0) + 1;
+      const name = ws.userName || ((m.name && String(m.name).trim()) ? String(m.name).slice(0, 20) : "Joueur " + room.seq);
+      room.clients.set(ws.clientId, { ws, name, isAdmin: false, ready: false, spectator: false, userId: ws.userId, avatar: ws.userAvatar });
       send(ws, { type: "joined", room: code, id: ws.clientId });
       broadcast(room);
       send(ws, { type: "vsync", time: room.vsync.time, playing: room.vsync.playing });
-      checkAutoStart(room);
-      broadcastRoomList();
-      return;
+      checkAutoStart(room); broadcastRoomList(); return;
     }
     if (m.type === "rejoin") {
       const code = (m.room || "").toString().toUpperCase().trim();
@@ -294,14 +384,14 @@ wss.on("connection", (ws) => {
       if (!room) { if (m.wasAdmin) { room = createRoomObj(code); rooms.set(code, room); } else { send(ws, { type: "join_error" }); return; } }
       if (ws.roomCode && ws.roomCode !== code) leaveRoom(ws);
       ws.roomCode = code;
-      const noAdmin = ![...room.clients.values()].some((c) => c.isAdmin);
+      const noAdmin = ![...room.clients.values()].some(c => c.isAdmin);
       const asAdmin = !!m.wasAdmin && noAdmin;
-      room.clients.set(ws.clientId, { ws, userId: ws.userId, name: ws.pseudo, isAdmin: asAdmin, ready: asAdmin, spectator: false });
+      const name = ws.userName || (m.name || "Joueur").toString().slice(0, 20) || "Joueur";
+      room.clients.set(ws.clientId, { ws, name, isAdmin: asAdmin, ready: asAdmin, spectator: false, userId: ws.userId, avatar: ws.userAvatar });
       send(ws, { type: asAdmin ? "created" : "joined", room: code, id: ws.clientId });
       broadcast(room);
       if (!asAdmin) send(ws, { type: "vsync", time: room.vsync.time, playing: room.vsync.playing });
-      broadcastRoomList();
-      return;
+      broadcastRoomList(); return;
     }
     if (m.type === "leave") { leaveRoom(ws); send(ws, { type: "left" }); return; }
 
@@ -309,58 +399,68 @@ wss.on("connection", (ws) => {
     if (!room) return;
     const me = room.clients.get(ws.clientId);
     if (!me) return;
-    const isAdmin = me.isAdmin;
+    const isAdm = me.isAdmin;
 
     switch (m.type) {
+      case "rename": {
+        const newName = (m.name || "").toString().slice(0, 20).trim();
+        if (!newName || newName === me.name) break;
+        const old = me.name; me.name = newName;
+        if (room.scores.has(old)) { room.scores.set(newName, room.scores.get(old)); room.scores.delete(old); }
+        for (const b of room.buzzes) if (b.id === ws.clientId) b.name = newName;
+        if (room.lastWinner && room.lastWinner.id === ws.clientId) room.lastWinner.name = newName;
+        broadcast(room); break;
+      }
       case "ready": if (!me.spectator) { me.ready = !me.ready; broadcast(room); checkAutoStart(room); } break;
       case "spectator": me.spectator = !!m.value; if (me.spectator) me.ready = false; broadcast(room); checkAutoStart(room); break;
       case "setVideoFile":
-        if (isAdmin) {
+        if (isAdm) {
           const name = (m.name || "").toString();
           if (/^[^\/\\]+$/.test(name) && VIDEO_RE.test(name)) {
-            room.video = name;
-            room.vsync = { time: 0, playing: false, at: Date.now() };
+            room.video = name; room.vsync = { time: 0, playing: false, at: Date.now() };
             broadcast(room); relayVsync(room);
           }
         } break;
       case "vsync":
-        if (isAdmin) { room.vsync = { time: Number(m.time) || 0, playing: !!m.playing, at: Date.now() }; relayVsync(room); }
+        if (isAdm) { room.vsync = { time: Number(m.time) || 0, playing: !!m.playing, at: Date.now() }; relayVsync(room); }
         break;
-      case "start":
-        if (isAdmin) startGame(room);
-        break;
+      case "start": if (isAdm) startGame(room); break;
       case "clearVideo":
-        if (isAdmin) { room.video = null; room.vsync = { time: 0, playing: false, at: Date.now() }; broadcast(room); relayVsync(room); }
-        break;
+        if (isAdm) { room.video = null; room.vsync = { time: 0, playing: false, at: Date.now() }; broadcast(room); relayVsync(room); } break;
       case "buzz":
         if (!me.spectator && (room.phase === "playing" || room.phase === "collecting")) {
           if (room.phase === "playing") startCollect(room);
-          addBuzz(room, ws.clientId, me.name); broadcast(room);
+          addBuzz(room, ws.clientId, me.name, me.avatar); broadcast(room);
         } break;
       case "answer":
         if (room.phase === "collecting") {
-          const b = room.buzzes.find((x) => x.id === ws.clientId);
+          const b = room.buzzes.find(x => x.id === ws.clientId);
           if (b) b.answer = (m.text || "").toString().slice(0, 120);
         } break;
       case "reveal":
-        if (isAdmin && (room.phase === "playing" || room.phase === "collecting") && room.buzzes.length) doReveal(room);
-        break;
+        if (isAdm && (room.phase === "playing" || room.phase === "collecting") && room.buzzes.length) doReveal(room); break;
       case "voteWinner":
         if (room.phase === "reveal" && !room.revealDecided && !me.spectator) {
-          if (room.buzzes.some((b) => b.id === m.candidateId)) {
+          if (room.buzzes.some(b => b.id === m.candidateId)) {
             room.revealVotes.set(ws.clientId, m.candidateId); broadcast(room); maybeAutoCloseReveal(room);
           }
         } break;
-      case "closeReveal": if (isAdmin) closeReveal(room); break;
+      case "closeReveal": if (isAdm) closeReveal(room); break;
       case "noWinner":
-        if (isAdmin && room.phase === "reveal" && !room.revealDecided) {
+        if (isAdm && room.phase === "reveal" && !room.revealDecided) {
           room.lastWinner = null; room.revealOutcome = "nogood"; room.revealDecided = true; broadcast(room);
         } break;
-      case "continue": if (isAdmin) nextRound(room); break;
-      case "endGame": if (isAdmin) { clearTimeout(room.collectTimer); recordEndedGame(room); room.phase = "ended"; room.collectEnd = null; broadcast(room); broadcastRoomList(); } break;
-      case "resetScores": if (isAdmin) { room.scores.clear(); broadcast(room); } break;
+      case "continue": if (isAdm) nextRound(room); break;
+      case "endGame":
+        if (isAdm) {
+          clearTimeout(room.collectTimer);
+          recordEndGame(room);
+          room.phase = "ended"; room.collectEnd = null;
+          broadcast(room); broadcastRoomList();
+        } break;
+      case "resetScores": if (isAdm) { room.scores.clear(); broadcast(room); } break;
       case "resetLobby":
-        if (isAdmin) {
+        if (isAdm) {
           cancelLobbyCountdown(room);
           room.phase = "lobby"; room.buzzes = []; room.revealVotes.clear();
           room.revealDecided = false; room.lastWinner = null; room.collectEnd = null;
@@ -383,7 +483,7 @@ function leaveRoom(ws) {
   ws.roomCode = null;
   if (room.clients.size === 0) { clearTimeout(room.collectTimer); clearTimeout(room.lobbyTimer); rooms.delete(room.code); }
   else {
-    if (wasAdmin && ![...room.clients.values()].some((c) => c.isAdmin)) {
+    if (wasAdmin && ![...room.clients.values()].some(c => c.isAdmin)) {
       const next = room.clients.values().next().value;
       if (next) { next.isAdmin = true; next.spectator = false; next.ready = true; send(next.ws, { type: "promoted" }); }
     }
@@ -392,4 +492,9 @@ function leaveRoom(ws) {
   broadcastRoomList();
 }
 
-server.listen(PORT, () => console.log(`BlindZik en ecoute sur le port ${PORT}`));
+/* ============================================================
+   Start
+   ============================================================ */
+db.load().then(() => {
+  server.listen(PORT, () => console.log(`Suce Pute MiniGames en écoute sur le port ${PORT}`));
+}).catch(e => { console.error("DB init failed:", e); process.exit(1); });

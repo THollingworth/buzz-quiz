@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Suce Pute MiniGames</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="hub.css">
+</head>
+<body>
+  <!-- HEADER -->
+  <header class="hub-header">
+    <div class="hub-logo">💥 <span class="lo-s">Suce Pute</span> <span class="lo-m">MiniGames</span></div>
+    <div class="hub-user" id="hubUser">
+      <div class="avatar-wrap" id="avatarBtn">
+        <img class="avatar-img" id="headerAvatar" src="" alt="">
+        <div class="avatar-fallback" id="avatarFallback"></div>
+      </div>
+      <span class="hub-pseudo" id="headerPseudo"></span>
+    </div>
+  </header>
+
+  <!-- GAMES GRID -->
+  <main class="hub-main">
+    <h1 class="hub-title">Choisir un jeu</h1>
+    <div class="games-grid">
+
+      <!-- BlindZik -->
+      <a href="/index.html" class="game-card active">
+        <div class="game-icon">🎵</div>
+        <div class="game-info">
+          <div class="game-name">BlindZik</div>
+          <div class="game-desc">Blind-test &amp; buzzer multijoueur</div>
+        </div>
+        <div class="game-arrow">→</div>
+      </a>
+
+      <!-- Chaos Culture -->
+      <div class="game-card soon">
+        <div class="game-icon">🌀</div>
+        <div class="game-info">
+          <div class="game-name">Chaos Culture</div>
+          <div class="game-desc">Bientôt disponible</div>
+        </div>
+        <div class="game-badge">Bientôt</div>
+      </div>
+
+      <!-- La suite -->
+      <div class="game-card soon">
+        <div class="game-icon">✨</div>
+        <div class="game-info">
+          <div class="game-name">La suite arrive…</div>
+          <div class="game-desc">D'autres jeux en cours de création</div>
+        </div>
+        <div class="game-badge">Bientôt</div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- PROFIL MODAL -->
+  <div class="modal hidden" id="profileModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Mon profil</h2>
+        <button class="modal-close" id="closeProfile">✕</button>
+      </div>
+
+      <!-- Avatar -->
+      <div class="profile-avatar-section">
+        <div class="profile-avatar-wrap">
+          <img class="profile-avatar-img" id="profileAvatarImg" src="" alt="">
+          <div class="profile-avatar-fallback" id="profileAvatarFallback"></div>
+        </div>
+        <label class="btn ghost small" for="avatarFile" style="cursor:pointer;">📷 Changer la photo</label>
+        <input type="file" id="avatarFile" accept="image/*" style="display:none">
+      </div>
+
+      <!-- Pseudo -->
+      <div class="profile-section">
+        <label>Pseudo</label>
+        <div class="row">
+          <input type="text" id="pseudoInput" maxlength="20" placeholder="Ton pseudo">
+          <button class="btn ghost small" id="savePseudo" style="width:auto;">Sauvegarder</button>
+        </div>
+        <p class="hint" id="pseudoMsg"></p>
+      </div>
+
+      <!-- Historique -->
+      <div class="profile-section">
+        <label>Historique des parties (10 dernières)</label>
+        <div class="history-list" id="historyList"><span class="empty">Chargement…</span></div>
+      </div>
+
+      <div style="margin-top:18px;">
+        <button class="btn ghost" id="logoutBtn">🚪 Se déconnecter</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="hub.js"></script>
+</body>
+</html>

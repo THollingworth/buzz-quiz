@@ -12,8 +12,16 @@
 <body>
 <div class="wrap">
   <div class="top">
+    <a href="/hub.html" class="hub-back" title="Retour au hub">← Hub</a>
     <div class="logo"><span class="b">Blind</span><span class="z">Zik</span></div>
     <div class="top-right">
+      <div class="bz-user-info" id="bzUserInfo">
+        <div class="bz-avatar-wrap">
+          <img class="bz-avatar-img" id="headerAvatar" src="" alt="" style="display:none">
+          <div class="bz-avatar-fallback" id="avatarFallback"></div>
+        </div>
+        <span class="bz-pseudo" id="headerPseudo"></span>
+      </div>
       <div class="badge" id="badge">Connexion…</div>
       <button class="btn ghost small hidden" id="modeToggle" style="width:auto;padding:8px 12px;font-size:13px;">📱 Mode buzzer</button>
       <button class="btn ghost small hidden" id="quitBtn" style="width:auto;padding:8px 14px;font-size:13px;">Quitter</button>
@@ -243,6 +251,30 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<script>
+// Auth check - redirect to login if not authenticated
+(async function() {
+  const r = await fetch('/api/auth/me');
+  const { user } = await r.json();
+  if (!user) { window.location.href = '/auth.html'; return; }
+  window._spmgUser = user;
+  // Set header avatar/pseudo if elements exist
+  const pseudo = document.getElementById('headerPseudo');
+  const avatar = document.getElementById('headerAvatar');
+  const fallback = document.getElementById('avatarFallback');
+  if (pseudo) pseudo.textContent = user.pseudo;
+  if (user.avatar && avatar) {
+    avatar.src = '/avatars/' + user.avatar;
+    avatar.style.display = 'block';
+    if (fallback) fallback.style.display = 'none';
+  } else if (fallback) {
+    if (avatar) avatar.style.display = 'none';
+    fallback.style.display = 'flex';
+    fallback.textContent = (user.pseudo || '?').slice(0,2).toUpperCase();
+  }
+})();
+</script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -1,24 +1,18 @@
 services:
-  blindzik:
+  spmg:
     build: .
-    image: blindzik:latest
-    container_name: blindzik
+    image: spmg:latest
+    container_name: spmg
     restart: unless-stopped
     ports:
-      # hôte:conteneur — change le port hôte (gauche) si 3000 est déjà pris
       - "3000:3000"
     environment:
       - PORT=3000
-      - DATA_DIR=/app/data
-      # Durée (ms) de la fenêtre de réponse après un buzz (défaut 5000)
+      - COOKIE_SECRET=changeme-in-production
       # - COLLECT_MS=5000
     volumes:
-      # Tes vidéos vivent ici et persistent même si tu reconstruis l'image.
-      # Tu peux les déposer via Portainer (Volumes > blindzik-videos > Browse)
-      # ou remplacer par un bind mount, ex : /opt/blindzik/videos:/app/public/videos
-      - blindzik-videos:/app/public/videos
-      # Comptes + historique des parties (fichier JSON) — à conserver absolument.
-      - blindzik-data:/app/data
+      - spmg-data:/app/data
+      - spmg-videos:/app/public/videos
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
       interval: 30s
@@ -26,5 +20,5 @@ services:
       retries: 3
 
 volumes:
-  blindzik-videos:
-  blindzik-data:
+  spmg-data:
+  spmg-videos:

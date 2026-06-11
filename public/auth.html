@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connexion — Suce Pute MiniGames</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="auth.css">
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-logo">💥 <span class="lo-s">Suce Pute</span> <span class="lo-m">MiniGames</span></div>
+
+    <!-- TABS -->
+    <div class="auth-tabs">
+      <button class="tab active" id="tabLogin" onclick="switchTab('login')">Connexion</button>
+      <button class="tab" id="tabRegister" onclick="switchTab('register')">Inscription</button>
+    </div>
+
+    <!-- LOGIN -->
+    <div class="auth-card" id="formLogin">
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="loginMail" placeholder="ton@mail.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label>Mot de passe</label>
+        <input type="password" id="loginPass" placeholder="••••••" autocomplete="current-password">
+      </div>
+      <p class="err hidden" id="loginErr"></p>
+      <button class="btn" id="loginBtn">Se connecter</button>
+    </div>
+
+    <!-- REGISTER -->
+    <div class="auth-card hidden" id="formRegister">
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="regMail" placeholder="ton@mail.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label>Pseudo (affiché en jeu)</label>
+        <input type="text" id="regPseudo" maxlength="20" placeholder="MonPseudo">
+      </div>
+      <div class="field">
+        <label>Mot de passe <span style="color:var(--muted);font-weight:400">(6 min)</span></label>
+        <input type="password" id="regPass" placeholder="••••••" autocomplete="new-password">
+      </div>
+      <p class="err hidden" id="regErr"></p>
+      <button class="btn" id="registerBtn">Créer mon compte</button>
+    </div>
+  </div>
+
+  <script>
+    function switchTab(t) {
+      document.getElementById('formLogin').classList.toggle('hidden', t !== 'login');
+      document.getElementById('formRegister').classList.toggle('hidden', t !== 'register');
+      document.getElementById('tabLogin').classList.toggle('active', t === 'login');
+      document.getElementById('tabRegister').classList.toggle('active', t === 'register');
+    }
+
+    async function post(url, body) {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      return { ok: r.ok, data: await r.json() };
+    }
+
+    document.getElementById('loginBtn').onclick = async () => {
+      const mail = document.getElementById('loginMail').value.trim();
+      const pass = document.getElementById('loginPass').value;
+      const err = document.getElementById('loginErr');
+      err.classList.add('hidden');
+      const { ok, data } = await post('/api/auth/login', { mail, password: pass });
+      if (ok) { window.location.href = '/hub.html'; }
+      else { err.textContent = data.error || 'Erreur'; err.classList.remove('hidden'); }
+    };
+    document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('loginBtn').click(); });
+
+    document.getElementById('registerBtn').onclick = async () => {
+      const mail = document.getElementById('regMail').value.trim();
+      const pseudo = document.getElementById('regPseudo').value.trim();
+      const pass = document.getElementById('regPass').value;
+      const err = document.getElementById('regErr');
+      err.classList.add('hidden');
+      const { ok, data } = await post('/api/auth/register', { mail, password: pass, pseudo });
+      if (ok) { window.location.href = '/hub.html'; }
+      else { err.textContent = data.error || 'Erreur'; err.classList.remove('hidden'); }
+    };
+    document.getElementById('regPass').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('registerBtn').click(); });
+  </script>
+</body>
+</html>
