@@ -3,7 +3,6 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="referrer" content="strict-origin-when-cross-origin">
 <title>BUZZ! — Blind-test &amp; buzzer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,7 +13,11 @@
 <div class="wrap">
   <div class="top">
     <div class="logo"><span class="b">BUZZ</span><span class="dot">!</span></div>
-    <div class="badge" id="badge">Connexion…</div>
+    <div class="top-right">
+      <div class="badge" id="badge">Connexion…</div>
+      <button class="btn ghost small hidden" id="modeToggle" style="width:auto;padding:8px 12px;font-size:13px;">📱 Mode buzzer</button>
+      <button class="btn ghost small hidden" id="quitBtn" style="width:auto;padding:8px 14px;font-size:13px;">Quitter</button>
+    </div>
   </div>
 
   <!-- HOME -->
@@ -35,35 +38,47 @@
 
   <!-- LOBBY -->
   <section id="lobby" class="hidden">
-    <div class="card invite-card">
-      <div class="invite-label">Code d'invitation</div>
-      <div class="invite-code" id="inviteCode">----</div>
-      <div class="row" style="margin-top:14px;">
-        <button class="btn ghost small" id="copyCode" style="padding:11px;font-size:14px;">Copier le code</button>
-        <button class="btn ghost small" id="copyLink" style="padding:11px;font-size:14px;">Copier le lien</button>
+    <div class="lobby-grid">
+      <!-- gauche : file d'attente -->
+      <div class="card queue-card">
+        <h2>File d'attente</h2>
+        <p class="sub" id="lobbySub">En attente que l'animateur lance la partie…</p>
+        <label>Joueurs : <span id="totalCount">0</span> — <span id="readyCount">0</span> prêt·s</label>
+        <div class="plist" id="playerList"></div>
       </div>
-    </div>
 
-    <div class="card">
-      <h2 id="lobbyTitle">File d'attente</h2>
-      <p class="sub" id="lobbySub">En attente que l'animateur lance la partie…</p>
-      <label>Joueurs : <span id="totalCount">0</span> — <span id="readyCount">0</span> prêt·s</label>
-      <div class="players" id="playerList"></div>
-    </div>
+      <!-- droite : code + pseudo + actions -->
+      <div class="lobby-side">
+        <div class="card">
+          <div class="invite-mini">
+            <div>
+              <div class="lab">Code</div>
+              <div class="code" id="inviteCode">----</div>
+            </div>
+            <div class="invite-btns">
+              <button id="copyCode">Copier</button>
+              <button id="copyLink">Lien</button>
+            </div>
+          </div>
 
-    <div class="card" id="nameCard">
-      <label for="nameInput">Ton pseudo <span style="font-weight:400">(optionnel)</span></label>
-      <input type="text" id="nameInput" maxlength="20" placeholder="Comment veux-tu apparaître ?" autocomplete="off">
-    </div>
+          <label for="nameInput">Ton pseudo <span class="req-star">*</span> <span style="font-weight:400">(obligatoire)</span></label>
+          <input type="text" id="nameInput" maxlength="20" placeholder="Comment veux-tu apparaître ?" autocomplete="off">
+          <p class="pseudo-hint" id="pseudoHint">Indispensable pour pouvoir te mettre prêt.</p>
 
-    <div class="card hidden" id="scoreCard">
-      <h2 style="font-size:18px;margin:0 0 12px;">Scores</h2>
-      <div class="scoreboard" id="scoreList"></div>
-    </div>
+          <div id="readyCard">
+            <button class="btn" id="readyBtn" style="margin-top:14px;">Je suis prêt·e ✋</button>
+            <button class="btn ghost" id="specBtn" style="margin-top:10px;">👀 Passer spectateur</button>
+          </div>
+          <div id="adminLaunch" class="hidden">
+            <button class="btn ghost" id="startBtn" style="margin-top:14px;">▶ Lancer la partie</button>
+          </div>
+        </div>
 
-    <div class="card" id="readyCard">
-      <button class="btn" id="readyBtn">Je suis prêt·e ✋</button>
-      <button class="btn ghost" id="specBtn" style="margin-top:10px;">👀 Passer spectateur</button>
+        <div class="card hidden" id="lobbyCountdown" style="text-align:center;border-color:var(--spotlight);">
+          <h2 style="margin:0;">🚀 Tout le monde est prêt&nbsp;!</h2>
+          <p class="sub" style="margin:6px 0 0;">Lancement automatique dans <span id="lobbyCdNum" style="color:var(--spotlight);font-weight:700;">5</span> s…</p>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -71,13 +86,14 @@
   <section id="game" class="hidden">
     <div class="game-grid">
       <div class="stage">
-        <div id="player"></div>
-        <div class="click-block hidden" id="clickBlock"></div>
-        <div class="stage-empty hidden" id="stageEmpty">Aucune vidéo</div>
+        <video id="video" playsinline></video>
+        <div class="stage-empty hidden" id="stageEmpty"><span id="stageMsg">Aucune vidéo</span></div>
+        <input type="file" id="videoFile" accept="video/*" style="display:none">
         <div class="vol hidden" id="volCtrl">
           <span class="vol-ic" id="volIc">🔈</span>
           <input type="range" id="volSlider" min="0" max="100" value="0" aria-label="Volume">
         </div>
+        <div class="click-block hidden" id="clickBlock"></div>
         <div class="overlay hidden" id="overlay">
           <div class="who" id="overlayWho"></div>
           <div class="ring">
@@ -97,7 +113,20 @@
       </aside>
     </div>
 
+    <!-- selecteur de video (animateur) -->
+    <div class="video-bar hidden" id="videoBar">
+      <select id="vselect"><option value="">— Choisir une vidéo —</option></select>
+      <button class="btn ghost small" id="vselectGo" style="width:auto;">Charger</button>
+      <button class="btn ghost small" id="vrefresh" style="width:auto;" title="Rafraîchir la liste">↻</button>
+      <button class="btn ghost small" id="pickVideo" style="width:auto;">📁 Fichier local</button>
+      <button class="btn ghost small" id="clearVideo" style="width:auto;">✖ Retirer la vidéo</button>
+    </div>
+
+    <!-- barre d'actions animateur (ecran principal) -->
+    <div class="admin-main hidden" id="adminMain"></div>
+
     <div class="buzz-zone" id="buzzZone">
+      <div class="buzz-timer hidden" id="buzzTimer"></div>
       <button class="buzzer" id="buzzer">BUZZ</button>
       <div class="buzz-hint" id="buzzHint">Appuie dès que tu connais la réponse — touche <kbd>Espace</kbd></div>
     </div>
@@ -117,23 +146,26 @@
     <p class="note" id="gameNote"></p>
   </section>
 
-  <p class="note">La vidéo est <b>synchronisée</b> par l'animateur : lui seul pilote la lecture. Les autres ne règlent que leur volume.</p>
+  <!-- END -->
+  <section id="endScreen" class="hidden">
+    <div class="card end-card">
+      <h2 style="text-align:center;font-size:26px;">🏁 Fin de partie</h2>
+      <div class="scoreboard end-board" id="endBoard"></div>
+      <div class="hidden" id="endAdmin" style="margin-top:18px;">
+        <button class="btn" id="endToLobby">↩ Nouvelle manche (retour à la file)</button>
+      </div>
+    </div>
+  </section>
 </div>
 
-<!-- Bouton flottant + modale animateur -->
-<button class="admin-fab hidden" id="adminFab" title="Contrôle animateur">⚙</button>
+<!-- Bouton flottant + modale animateur (actions secondaires) -->
+<button class="admin-fab hidden" id="adminFab" title="Options animateur">⚙</button>
 <div class="modal hidden" id="adminModal">
   <div class="modal-card">
     <div class="modal-head">
-      <h2>Contrôle animateur</h2>
+      <h2>Options animateur</h2>
       <button class="modal-close" id="closeModal" aria-label="Fermer">✕</button>
     </div>
-    <label for="vurl">Vidéo YouTube</label>
-    <div class="videoset">
-      <input type="text" id="vurl" placeholder="https://www.youtube.com/watch?v=…">
-      <button class="btn ghost small" id="setVideo" style="padding:14px 16px;font-size:14px;">Charger</button>
-    </div>
-    <p class="sub" id="videoState" style="margin:0 0 16px;">Aucune vidéo chargée.</p>
     <div class="admin-grid" id="adminActions"></div>
   </div>
 </div>

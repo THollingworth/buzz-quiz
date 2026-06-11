@@ -1,23 +1,20 @@
 /* ============================================================
-   BUZZ! — Client (WebSocket + lecteur YouTube synchronise)
+   BUZZ! — Client (WebSocket + lecteur video local)
    ============================================================ */
 "use strict";
 
-const COUNTDOWN_MS = 5000;
+const COLLECT_MS = 5000;
 const $ = (id) => document.getElementById(id);
 const show = (id, on) => $(id).classList.toggle("hidden", !on);
 
 /* ---------- Identite / etat ---------- */
 let myId = null, myRole = null, myName = "", myRoom = "";
-let autoJoinRoom = null;
+let autoJoinRoom = null, lastRoundSeen = -1;
+let buzzerMode = !!(window.matchMedia && window.matchMedia("(max-width:760px)").matches);
+let pseudoSet = false;
 let state = null;
 
-// lien d'invitation : ?room=CODE -> rejoindre automatiquement
-(function () {
-  const p = new URLSearchParams(location.search);
-  const r = (p.get("room") || "").toUpperCase().trim();
-  if (r) autoJoinRoom = r;
-})();
+(function () { const r = (new URLSearchParams(location.search).get("room") || "").toUpperCase().trim(); if (r) autoJoinRoom = r; })();
 
 /* ---------- WebSocket ---------- */
 let ws = null, reconnectTimer = null;
@@ -37,12 +34,13 @@ function sendMsg(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
 
 function handleServer(m) {
   if (m.type === "welcome") { myId = m.id; return; }
-  if (m.type === "created") { myRole = "admin"; myRoom = m.room; if (m.id) myId = m.id; ytFrameId = null; return; }
+  if (m.type === "created") { myRole = "admin"; myRoom = m.room; if (m.id) myId = m.id; return; }
   if (m.type === "joined") { myRole = "player"; myRoom = m.room; if (m.id) myId = m.id; return; }
   if (m.type === "join_error") { $("joinErr").style.display = "block"; myRole = null; return; }
-  if (m.type === "promoted") { myRole = "admin"; ytFrameId = null; toast("Tu es maintenant l'animateur 🎬"); return; }
+  if (m.type === "promoted") { myRole = "admin"; applyVideoControls(); toast("Tu es maintenant l'animateur 🎬"); return; }
+  if (m.type === "left") { resetToHome(); return; }
+  if (m.type === "vsync") { onVsync(m); return; }
   if (m.type === "notice") { toast(m.text); return; }
-  if (m.type === "sync") { onSync(m); return; }
   if (m.type === "state") { state = m; onState(); return; }
 }
 
@@ -50,104 +48,97 @@ function handleServer(m) {
 let toastTimer = null;
 function toast(text) { const t = $("toast"); t.textContent = text; t.classList.add("show"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 2600); }
 
-/* ============================================================
-   Lecteur YouTube — iframe manuel + postMessage + synchro
-   ============================================================ */
-let ytFrame = null, ytFrameId = null, lastSyncedPhase = null;
-let ytCurrentTime = 0, ytPlayerState = -1, lastSentState = null;
-let syncBase = null; // { time, playing, at } recu de l'animateur
-
 function isAdmin() { return myRole === "admin"; }
 
-function buildEmbedSrc(id) {
-  const p = new URLSearchParams({
-    enablejsapi: "1", rel: "0", modestbranding: "1", playsinline: "1",
-    iv_load_policy: "3", mute: "1",
-    controls: isAdmin() ? "1" : "0",
-    disablekb: isAdmin() ? "0" : "1",
-    fs: "1"
-  });
-  return "https://www.youtube-nocookie.com/embed/" + id + "?" + p.toString();
-}
-function syncVideo() {
-  if (!state || !state.videoId) return;
-  const mount = $("player");
-  if (!ytFrame || state.videoId !== ytFrameId) {
-    mount.innerHTML = "";
-    $("stageEmpty").classList.add("hidden");
-    ytFrame = document.createElement("iframe");
-    ytFrame.id = "ytframe";
-    ytFrame.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
-    ytFrame.setAttribute("allow", "autoplay; encrypted-media; picture-in-picture; fullscreen");
-    ytFrame.setAttribute("allowfullscreen", "");
-    ytFrame.src = buildEmbedSrc(state.videoId);
-    ytFrame.addEventListener("load", () => setTimeout(() => { ytListen(); lastSyncedPhase = null; applyPlayback(true); applyVolume(); }, 700));
-    mount.appendChild(ytFrame);
-    ytFrameId = state.videoId;
-    lastSyncedPhase = null;
-  }
-}
-function ytPost(func, args) { if (ytFrame && ytFrame.contentWindow) ytFrame.contentWindow.postMessage(JSON.stringify({ event: "command", func, args: args || [] }), "*"); }
-function ytListen() { if (ytFrame && ytFrame.contentWindow) ytFrame.contentWindow.postMessage(JSON.stringify({ event: "listening", id: "ytframe" }), "*"); }
-function ytSeek(sec) { ytPost("seekTo", [Math.max(0, sec), true]); }
-function applyPlayback(force) {
-  if (!ytFrame) return;
-  const playing = state && state.phase === "playing";
-  if (force || state.phase !== lastSyncedPhase) { ytPost(playing ? "playVideo" : "pauseVideo"); lastSyncedPhase = state.phase; }
-}
+/* ============================================================
+   Lecteur video local (fichier .mp4)
+   ============================================================ */
+const videoEl = $("video");
+let hasVideo = false, curVol = 0, lastAppliedPhase = null;
+let localFileChosen = false, loadedVideoName = null, videoListLoaded = false;
 
-/* volume (autorise pour tout le monde) */
-let curVol = 0;
-function applyVolume() { if (curVol > 0) { ytPost("unMute"); ytPost("setVolume", [curVol]); } else { ytPost("mute"); } }
+// fichier local : n'affecte que cet ecran
+$("pickVideo").onclick = () => $("videoFile").click();
+$("videoFile").addEventListener("change", (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  if (videoEl.src && localFileChosen) { try { URL.revokeObjectURL(videoEl.src); } catch (_) {} }
+  localFileChosen = true; loadedVideoName = null;
+  videoEl.src = URL.createObjectURL(f);
+  videoEl.load(); hasVideo = true;
+  $("stageEmpty").classList.add("hidden");
+  applyVideoControls(); applyVolume(); lastAppliedPhase = null; applyPlayback(true);
+});
+
+// video du dossier serveur : partagee a tous les joueurs
+function loadServerVideo(name) {
+  if (!name) return;
+  localFileChosen = false; loadedVideoName = name;
+  videoEl.src = "videos/" + encodeURIComponent(name);
+  videoEl.load(); hasVideo = true;
+  $("stageEmpty").classList.add("hidden");
+  applyVideoControls(); applyVolume(); lastAppliedPhase = null; applyPlayback(true);
+}
+function unloadVideo() {
+  try { if (localFileChosen && videoEl.src) URL.revokeObjectURL(videoEl.src); } catch (_) {}
+  try { videoEl.pause(); videoEl.removeAttribute("src"); videoEl.load(); } catch (_) {}
+  hasVideo = false; loadedVideoName = null; localFileChosen = false; lastAppliedPhase = null;
+}
+function maybeLoadStateVideo() {
+  if (buzzerMode) return; // mode telephone : pas de video
+  if (!state) return;
+  if (!state.video) { if (hasVideo && !localFileChosen) unloadVideo(); return; }
+  if (localFileChosen) return;
+  if (loadedVideoName !== state.video) loadServerVideo(state.video);
+}
+async function loadVideoList() {
+  try {
+    const r = await fetch("api/videos"); const d = await r.json();
+    const sel = $("vselect");
+    sel.innerHTML = '<option value="">— Choisir une vidéo —</option>';
+    (d.videos || []).forEach((v) => { const o = document.createElement("option"); o.value = v; o.textContent = v; sel.appendChild(o); });
+    if (state && state.video) sel.value = state.video;
+  } catch (_) {}
+}
+$("vselectGo").onclick = () => { const name = $("vselect").value; if (name) { localFileChosen = false; sendMsg({ type: "setVideoFile", name }); } };
+$("vrefresh").onclick = () => loadVideoList();
+$("clearVideo").onclick = () => { unloadVideo(); sendMsg({ type: "clearVideo" }); };
+
+function applyVideoControls() { videoEl.controls = isAdmin(); }
+function applyPlayback(force) {
+  if (!hasVideo || !state) return;
+  if (!force && state.phase === lastAppliedPhase) return;
+  if (state.phase === "playing") videoEl.play().catch(() => {}); else videoEl.pause();
+  lastAppliedPhase = state.phase;
+}
+function applyVolume() { videoEl.volume = Math.min(1, curVol / 100); videoEl.muted = curVol === 0; }
 $("volSlider").addEventListener("input", (e) => {
   curVol = Number(e.target.value) || 0;
   $("volIc").textContent = curVol === 0 ? "🔈" : curVol < 50 ? "🔉" : "🔊";
   applyVolume();
 });
 
-/* messages du player : suivi position + erreurs */
-window.addEventListener("message", (e) => {
-  if (typeof e.data !== "string" || !/youtube/.test(e.origin)) return;
-  let d; try { d = JSON.parse(e.data); } catch { return; }
-  if (d.event === "infoDelivery" && d.info) {
-    if (typeof d.info.currentTime === "number") ytCurrentTime = d.info.currentTime;
-    if (typeof d.info.playerState === "number") {
-      ytPlayerState = d.info.playerState;
-      if (isAdmin()) pushSync(true); // propage tout de suite play/pause de l'animateur
-    }
-  }
-  const code = d.info && d.info.errorCode ? d.info.errorCode : (d.event === "onError" ? d.info : null);
-  if (code != null) showVideoError(code);
-});
-function showVideoError(code) {
-  const el = $("stageEmpty");
-  const msgs = { 2: "Lien invalide.", 5: "Lecteur HTML5 indisponible.", 100: "Vidéo introuvable ou privée.",
-    101: "Cette vidéo interdit la lecture intégrée.", 150: "Cette vidéo interdit la lecture intégrée." };
-  el.textContent = "⚠ " + (msgs[code] || ("Erreur lecteur (" + code + ")"));
-  el.classList.remove("hidden");
+/* ---- Synchro vidéo : l'animateur est le maître ---- */
+let vsyncBase = null;
+function sendVsync() {
+  if (!isAdmin() || !hasVideo) return;
+  sendMsg({ type: "vsync", time: videoEl.currentTime || 0, playing: !videoEl.paused });
 }
+["play", "pause", "seeked", "ratechange"].forEach((ev) =>
+  videoEl.addEventListener(ev, () => { if (isAdmin()) sendVsync(); }));
+setInterval(() => { if (isAdmin() && hasVideo && state && state.phase === "playing") sendVsync(); }, 1000);
 
-/* --- Synchro : l'animateur emet, les autres se calent --- */
-function pushSync(onChange) {
-  if (!isAdmin() || !state || state.phase !== "playing") return;
-  const playing = ytPlayerState === 1;
-  if (!onChange && playing === lastSentState && Math.abs(0) === 0) { /* periodique quand meme */ }
-  lastSentState = playing;
-  sendMsg({ type: "sync", time: ytCurrentTime || 0, playing });
-}
-setInterval(() => pushSync(false), 900); // animateur : envoi periodique
-
-function onSync(m) { syncBase = { time: m.time, playing: m.playing, at: Date.now() }; }
-setInterval(() => { // non-animateur : reconciliation
-  if (isAdmin() || !ytFrame || !syncBase || !state || state.phase !== "playing") return;
-  const expected = syncBase.time + (syncBase.playing ? (Date.now() - syncBase.at) / 1000 : 0);
-  if (Math.abs((ytCurrentTime || 0) - expected) > 1.0) ytSeek(expected);
-  if (syncBase.playing && ytPlayerState !== 1) ytPost("playVideo");
-  if (!syncBase.playing && ytPlayerState === 1) ytPost("pauseVideo");
+function onVsync(m) { vsyncBase = { time: m.time || 0, playing: !!m.playing, at: Date.now() }; }
+setInterval(() => {
+  if (isAdmin() || buzzerMode || !hasVideo || !vsyncBase || !state || state.phase !== "playing") return;
+  const expected = vsyncBase.time + (vsyncBase.playing ? (Date.now() - vsyncBase.at) / 1000 : 0);
+  if (Math.abs((videoEl.currentTime || 0) - expected) > 0.5) { try { videoEl.currentTime = expected; } catch (_) {} }
+  if (vsyncBase.playing && videoEl.paused) videoEl.play().catch(() => {});
+  if (!vsyncBase.playing && !videoEl.paused) videoEl.pause();
 }, 700);
 
 /* ============================================================
-   Actions UI
+   Actions
    ============================================================ */
 $("createBtn").onclick = () => { myRole = "admin"; sendMsg({ type: "create" }); setBadge(); };
 $("joinBtn").onclick = () => {
@@ -158,39 +149,49 @@ $("joinBtn").onclick = () => {
 };
 $("room").addEventListener("keydown", (e) => { if (e.key === "Enter") $("joinBtn").click(); });
 
-$("readyBtn").onclick = () => sendMsg({ type: "ready" });
+$("startBtn").onclick = () => sendMsg({ type: "start" });
+$("readyBtn").onclick = () => { sendRename(); if ($("nameInput").value.trim()) sendMsg({ type: "ready" }); };
 $("specBtn").onclick = () => { const me = meEntry(); sendMsg({ type: "spectator", value: !(me && me.spectator) }); };
+$("endToLobby").onclick = () => sendMsg({ type: "resetLobby" });
 
-// reponse ecrite pendant la fenetre de buzz
+$("quitBtn").onclick = () => { sendMsg({ type: "leave" }); resetToHome(); };
+
+function applyMode() {
+  document.body.classList.toggle("buzzer-mode", buzzerMode);
+  $("modeToggle").textContent = buzzerMode ? "🖥 Mode complet" : "📱 Mode buzzer";
+}
+$("modeToggle").onclick = () => {
+  buzzerMode = !buzzerMode;
+  if (buzzerMode) { try { videoEl.pause(); } catch (_) {} }
+  applyMode();
+  if (state && myRole) onState();
+};
+applyMode();
+function resetToHome() {
+  myRole = null; myRoom = ""; state = null; lastRoundSeen = -1;
+  videoListLoaded = false; localFileChosen = false; loadedVideoName = null; hasVideo = false;
+  try { videoEl.pause(); videoEl.removeAttribute("src"); videoEl.load(); } catch (_) {}
+  show("home", true); show("lobby", false); show("game", false); show("endScreen", false);
+  show("quitBtn", false); show("adminFab", false); show("adminModal", false); show("modeToggle", false);
+  setBadge();
+}
+
 let answerTimer = null;
 $("answerInput").addEventListener("input", () => {
   clearTimeout(answerTimer);
   answerTimer = setTimeout(() => sendMsg({ type: "answer", text: $("answerInput").value }), 200);
 });
 
-// pseudo optionnel (renommage)
-function sendRename() { const v = $("nameInput").value.trim(); if (v && v !== myName) sendMsg({ type: "rename", name: v }); }
-$("nameInput").addEventListener("change", sendRename);
-$("nameInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { sendRename(); $("nameInput").blur(); } });
-
-// copie code / lien
-function inviteLink() { return location.origin + location.pathname + "?room=" + myRoom; }
-function copyText(txt, btn, label) {
-  const done = () => { const o = btn.textContent; btn.textContent = "Copié ✓"; setTimeout(() => (btn.textContent = label || o), 1400); };
-  if (navigator.clipboard) navigator.clipboard.writeText(txt).then(done).catch(done); else done();
-}
-$("copyCode").onclick = (e) => copyText(myRoom, e.target, "Copier le code");
-$("copyLink").onclick = (e) => copyText(inviteLink(), e.target, "Copier le lien");
-
 function meEntry() { return state ? state.players.find((p) => p.id === myId) : null; }
-
 function doBuzz() {
   if (!state || (state.phase !== "playing" && state.phase !== "collecting")) return;
   const me = meEntry();
   if (me && me.spectator) return;
-  if (state.buzzes && state.buzzes.some((b) => b.id === myId)) return; // deja dans la liste
+  if (state.buzzes && state.buzzes.some((b) => b.id === myId)) return;
   $("buzzer").classList.add("pressed"); setTimeout(() => $("buzzer").classList.remove("pressed"), 150);
   sendMsg({ type: "buzz" });
+  // focus immediat dans la case reponse (dans le geste -> ouvre le clavier mobile, pas de temps perdu)
+  const ai = $("answerInput"); ai.value = ""; show("answerZone", true); ai.focus();
 }
 $("buzzer").onclick = doBuzz;
 document.addEventListener("keydown", (e) => {
@@ -199,29 +200,52 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-/* ---------- Modale animateur ---------- */
+/* pseudo + invitation */
+function sendRename() {
+  const v = $("nameInput").value.trim();
+  if (!v) return;
+  pseudoSet = true;
+  if (v !== myName) sendMsg({ type: "rename", name: v });
+  updateReadyGate();
+}
+function updateReadyGate() {
+  const has = $("nameInput").value.trim().length > 0;
+  const me = meEntry(); const spec = me && me.spectator;
+  $("readyBtn").disabled = !has || !!spec;
+  show("pseudoHint", !has);
+}
+$("nameInput").addEventListener("input", updateReadyGate);
+$("nameInput").addEventListener("change", sendRename);
+$("nameInput").addEventListener("keydown", (e) => { if (e.key === "Enter") { sendRename(); $("nameInput").blur(); } });
+function inviteLink() { return location.origin + location.pathname + "?room=" + myRoom; }
+function copyText(txt, btn, label) {
+  const done = () => { btn.textContent = "Copié ✓"; setTimeout(() => (btn.textContent = label), 1400); };
+  if (navigator.clipboard) navigator.clipboard.writeText(txt).then(done).catch(done); else done();
+}
+$("copyCode").onclick = (e) => copyText(myRoom, e.target, "Copier");
+$("copyLink").onclick = (e) => copyText(inviteLink(), e.target, "Lien");
+
+/* ---------- Modale (options animateur) ---------- */
 $("adminFab").onclick = () => { renderAdminModal(); show("adminModal", true); };
 $("closeModal").onclick = () => show("adminModal", false);
 $("adminModal").addEventListener("click", (e) => { if (e.target.id === "adminModal") show("adminModal", false); });
-$("setVideo").onclick = () => { sendMsg({ type: "setVideo", url: $("vurl").value }); };
-
-function adminBtnEl(label, cls, type, disabled) {
+function adminBtnEl(label, cls, type) {
   const b = document.createElement("button");
-  b.className = "btn " + (cls || "ghost"); b.textContent = label; b.disabled = !!disabled;
-  b.onclick = () => sendMsg({ type });
+  b.className = "btn " + (cls || "ghost"); b.textContent = label;
+  b.onclick = () => { sendMsg({ type }); show("adminModal", false); };
   return b;
 }
 function renderAdminModal() {
-  if (!state) return;
-  $("videoState").textContent = state.videoId ? "Vidéo prête ✅" : "Aucune vidéo chargée.";
   const box = $("adminActions"); box.innerHTML = "";
-  const ph = state.phase;
-  if (ph === "lobby") box.appendChild(adminBtnEl("Lancer la partie", "", "start", !state.videoId));
-  if (ph === "playing" || ph === "collecting") box.appendChild(adminBtnEl("🎯 Révélation", "", "reveal", !(state.buzzes && state.buzzes.length)));
-  if (ph === "reveal" && !state.revealDecided) box.appendChild(adminBtnEl("Clôturer le vote", "", "closeReveal"));
-  if (ph === "reveal" && state.revealDecided) box.appendChild(adminBtnEl("Manche suivante ▶", "", "continue"));
-  if (ph !== "lobby") box.appendChild(adminBtnEl("Revenir à la file", "ghost", "resetLobby"));
+  box.appendChild(adminBtnEl("🏁 Fin de partie", "", "endGame"));
   box.appendChild(adminBtnEl("Réinitialiser les scores", "ghost", "resetScores"));
+  box.appendChild(adminBtnEl("Revenir à la file d'attente", "ghost", "resetLobby"));
+}
+function mainBtn(bar, label, type, disabled, cls) {
+  const b = document.createElement("button");
+  b.className = "btn " + (cls || "primary"); b.textContent = label; b.disabled = !!disabled;
+  b.onclick = () => sendMsg({ type });
+  bar.appendChild(b);
 }
 
 /* ============================================================
@@ -249,93 +273,118 @@ function renderScores(el) {
 
 function onState() {
   const me0 = meEntry(); if (me0) myName = me0.name;
+  if (state.round !== lastRoundSeen) { lastRoundSeen = state.round; $("answerInput").value = ""; }
   setBadge();
-  const inGame = ["playing", "collecting", "reveal"].includes(state.phase);
+  const ph = state.phase;
+  const inGame = ["playing", "collecting", "reveal"].includes(ph);
+  const ended = ph === "ended";
+  if (ph === "lobby" && hasVideo) unloadVideo();
+  if (ph !== "lobby") stopLobbyCd();
   show("home", myRole === null);
-  show("lobby", myRole !== null && !inGame);
+  show("lobby", myRole !== null && !inGame && !ended);
   show("game", myRole !== null && inGame);
+  show("endScreen", myRole !== null && ended);
+  show("quitBtn", myRole !== null);
+  show("modeToggle", myRole !== null);
   show("adminFab", myRole === "admin");
   if (myRole === "admin" && !$("adminModal").classList.contains("hidden")) renderAdminModal();
   if (myRole === null) return;
-  if (!inGame) renderLobby(); else renderGame();
+  if (ended) renderEnd();
+  else if (!inGame) renderLobby();
+  else renderGame();
 }
 
 function renderLobby() {
   $("inviteCode").textContent = myRoom || "----";
-  if (document.activeElement !== $("nameInput")) $("nameInput").value = myName;
+  if (document.activeElement !== $("nameInput") && (isAdmin() || pseudoSet)) $("nameInput").value = myName;
+  show("adminLaunch", isAdmin());
+  show("readyCard", !isAdmin());
+
+  if (state.lobbyCountdownRemaining > 0) { show("lobbyCountdown", true); if (!lobbyCdTimer) startLobbyCd(state.lobbyCountdownRemaining); }
+  else { show("lobbyCountdown", false); stopLobbyCd(); }
+
   const list = $("playerList"); list.innerHTML = "";
   const activeP = state.players.filter((p) => !p.spectator);
   $("totalCount").textContent = activeP.length;
   $("readyCount").textContent = activeP.filter((p) => p.ready).length;
   if (state.players.length === 0) list.innerHTML = '<span class="empty">Personne pour l\'instant…</span>';
   state.players.forEach((p) => {
-    const c = document.createElement("span");
-    c.className = "chip" + (p.ready && !p.spectator ? " ready" : "") + (p.id === myId ? " me" : "") + (p.isAdmin ? " admin" : "") + (p.spectator ? " spectator" : "");
-    const tag = p.isAdmin ? ' <span class="tag">👑</span>' : p.spectator ? ' <span class="tag">👀</span>' : "";
-    c.innerHTML = '<span class="status"></span>' + escapeHtml(p.name) + (p.id === myId ? " (toi)" : "") + tag;
-    list.appendChild(c);
+    const row = document.createElement("div");
+    row.className = "prow" + (p.id === myId ? " me" : "");
+    const ok = p.ready && !p.spectator ? " ok" : "";
+    const tag = p.isAdmin ? '<span class="ptag">👑 animateur</span>' : p.spectator ? '<span class="ptag">👀 spectateur</span>' : "";
+    row.innerHTML = '<span class="pdot' + ok + '"></span><span class="pnm">' + escapeHtml(p.name) + (p.id === myId ? " (toi)" : "") + "</span>" + tag;
+    list.appendChild(row);
   });
 
-  show("scoreCard", (state.scores || []).length > 0);
-  renderScores($("scoreList"));
-
-  const me = meEntry();
-  const spec = me && me.spectator;
-  show("readyCard", true);
+  const me = meEntry(); const spec = me && me.spectator;
   show("readyBtn", !spec);
   if (!spec && me) { const r = me.ready; $("readyBtn").textContent = r ? "Annuler — pas prêt" : "Je suis prêt·e ✋"; $("readyBtn").className = "btn" + (r ? " ghost" : ""); }
   $("specBtn").textContent = spec ? "↩ Revenir joueur" : "👀 Passer spectateur";
+  updateReadyGate();
 }
 
 function renderGame() {
-  syncVideo();
+  maybeLoadStateVideo();
   applyPlayback(false);
+  applyVideoControls();
 
   const s = state;
   const me = meEntry();
   const spec = me && me.spectator;
   const buzzes = s.buzzes || [];
   const iBuzzed = buzzes.some((b) => b.id === myId);
+  const inPlay = s.phase === "playing" || s.phase === "collecting";
 
-  show("volCtrl", !!s.videoId);
-  show("clickBlock", !isAdmin() && !!s.videoId);
+  // selecteur video (animateur)
+  show("videoBar", isAdmin());
+  if (isAdmin() && !videoListLoaded) { videoListLoaded = true; loadVideoList(); }
 
-  // overlay = compte a rebours pendant la collecte
+  show("stageEmpty", !hasVideo);
+  $("stageMsg").textContent = isAdmin() ? "Choisis une vidéo ci-dessous ⬇" : "En attente de la vidéo de l'animateur…";
+  show("volCtrl", hasVideo);
+  show("clickBlock", hasVideo && !isAdmin());
+
+  // compte a rebours
   if (s.phase === "collecting") {
     show("overlay", true);
     $("overlayWho").textContent = buzzes.length + (buzzes.length > 1 ? " joueurs ont buzzé" : " joueur a buzzé");
     startCountdownLoop();
   } else { show("overlay", false); stopCountdownLoop(); }
 
-  // zones
-  const showBuzzer = (s.phase === "playing") || (s.phase === "collecting" && !iBuzzed);
-  show("buzzZone", showBuzzer);
-  show("answerZone", s.phase === "collecting" && iBuzzed && !spec);
-  show("revealZone", s.phase === "reveal");
+  // barre animateur (ecran principal)
+  const bar = $("adminMain");
+  if (isAdmin()) {
+    bar.classList.remove("hidden"); bar.innerHTML = "";
+    if (inPlay) mainBtn(bar, "🎯 Révélation", "reveal", !buzzes.length);
+    else if (s.phase === "reveal" && !s.revealDecided) {
+      mainBtn(bar, "Clôturer le vote", "closeReveal");
+      mainBtn(bar, "Aucune bonne réponse", "noWinner", false, "ghost");
+    } else if (s.phase === "reveal" && s.revealDecided) mainBtn(bar, "Manche suivante ▶", "continue");
+  } else bar.classList.add("hidden");
 
-  // buzzer
+  // buzzer : reste visible, fonce et inactif une fois qu'on a buzze
+  show("buzzZone", inPlay);
+  show("buzzTimer", buzzerMode && s.phase === "collecting");
   const buzzer = $("buzzer");
-  if (showBuzzer) {
-    buzzer.textContent = "BUZZ";
-    buzzer.disabled = spec;
+  if (inPlay) {
+    buzzer.disabled = spec || iBuzzed;
+    buzzer.textContent = iBuzzed ? "BUZZÉ ✓" : "BUZZ";
     $("buzzHint").innerHTML = spec ? "Mode spectateur — tu ne buzzes pas."
+      : iBuzzed ? "Ton buzz est enregistré — rebuzz possible à la manche suivante."
       : s.phase === "collecting" ? "Buzze pour répondre toi aussi !"
       : 'Appuie dès que tu connais la réponse — touche <kbd>Espace</kbd>';
   }
 
-  // zone reponse
-  if (s.phase === "collecting" && iBuzzed && !spec) {
-    if (document.activeElement !== $("answerInput")) { /* ne pas ecraser la frappe */ }
-  } else if (s.phase !== "collecting") {
-    $("answerInput").value = "";
-  }
+  // zone reponse (ne se reinitialise plus quand d'autres buzzent)
+  show("answerZone", s.phase === "collecting" && iBuzzed && !spec);
 
   // revelation
+  show("revealZone", s.phase === "reveal");
   if (s.phase === "reveal") renderReveal(s, spec);
 
   renderScores($("scoreListGame"));
-  $("gameNote").textContent = "Manche " + (s.round || 1)
-    + (buzzes.length ? " · " + buzzes.length + " buzz" : "");
+  $("gameNote").textContent = "Manche " + (s.round || 1) + (buzzes.length ? " · " + buzzes.length + " buzz" : "");
 }
 
 function renderReveal(s, spec) {
@@ -345,9 +394,11 @@ function renderReveal(s, spec) {
   const voteCount = {};
   s.revealVotes.forEach((v) => { voteCount[v.cand] = (voteCount[v.cand] || 0) + 1; });
 
-  $("revealTitle").textContent = s.revealDecided
-    ? (s.lastWinner ? "🏆 " + s.lastWinner.name + " gagne la manche ! (+1)" : "Manche terminée")
-    : "Révélation — votez pour le gagnant";
+  let decidedMsg = "Manche terminée — pas de point";
+  if (s.lastWinner) decidedMsg = "🏆 " + s.lastWinner.name + " gagne la manche ! (+1)";
+  else if (s.revealOutcome === "tie") decidedMsg = "⚖️ Égalité — point annulé";
+  else if (s.revealOutcome === "nogood") decidedMsg = "Aucune bonne réponse — pas de point";
+  $("revealTitle").textContent = s.revealDecided ? decidedMsg : "Révélation — votez pour le gagnant";
 
   const list = $("buzzList"); list.innerHTML = "";
   buzzes.forEach((b, i) => {
@@ -355,23 +406,15 @@ function renderReveal(s, spec) {
     const isWin = s.revealDecided && s.lastWinner && s.lastWinner.id === b.id;
     row.className = "buzz-row" + (isWin ? " win" : "") + (b.id === myId ? " mine" : "");
     const dt = i === 0 ? "+0 ms" : "+" + (b.at - t0) + " ms";
-    const ans = b.answer ? '<div class="ans">' + escapeHtml(b.answer) + "</div>"
-      : '<div class="ans empty">(pas de réponse)</div>';
+    const ans = b.answer ? '<div class="ans">' + escapeHtml(b.answer) + "</div>" : '<div class="ans empty">(pas de réponse)</div>';
     const vc = voteCount[b.id] ? '<span class="votes">' + voteCount[b.id] + " vote" + (voteCount[b.id] > 1 ? "s" : "") + "</span>" : "";
     const crown = isWin ? ' <span class="crown">🏆</span>' : "";
     const canVote = !s.revealDecided && !spec;
-    const btn = canVote
-      ? '<button class="vote-btn" data-id="' + b.id + '"' + (myVote === b.id ? " disabled" : "") + '>'
-        + (myVote === b.id ? "Voté ✓" : "Voter") + "</button>"
-      : "";
-    row.innerHTML = '<div class="rk">' + (i + 1) + '</div>'
-      + '<div class="info"><div class="who">' + escapeHtml(b.name) + crown
-      + ' <span class="dt">' + dt + "</span>" + vc + "</div>" + ans + "</div>" + btn;
+    const btn = canVote ? '<button class="vote-btn" data-id="' + b.id + '"' + (myVote === b.id ? " disabled" : "") + ">" + (myVote === b.id ? "Voté ✓" : "Voter") + "</button>" : "";
+    row.innerHTML = '<div class="rk">' + (i + 1) + '</div><div class="info"><div class="who">' + escapeHtml(b.name) + crown + ' <span class="dt">' + dt + "</span>" + vc + "</div>" + ans + "</div>" + btn;
     list.appendChild(row);
   });
-  list.querySelectorAll(".vote-btn").forEach((btn) => {
-    btn.onclick = () => sendMsg({ type: "voteWinner", candidateId: btn.getAttribute("data-id") });
-  });
+  list.querySelectorAll(".vote-btn").forEach((btn) => { btn.onclick = () => sendMsg({ type: "voteWinner", candidateId: btn.getAttribute("data-id") }); });
 
   const note = $("revealNote");
   if (spec) { show("revealNote", true); note.textContent = "Spectateur — tu ne votes pas."; }
@@ -379,11 +422,27 @@ function renderReveal(s, spec) {
   else show("revealNote", false);
 }
 
-/* ---------- Anneau de compte a rebours (collecte) ---------- */
+function renderEnd() {
+  show("endAdmin", isAdmin());
+  const board = $("endBoard"); board.innerHTML = "";
+  const sc = state.scores || [];
+  if (sc.length === 0) { board.innerHTML = '<span class="empty">Aucun joueur.</span>'; return; }
+  sc.forEach((row, i) => {
+    const last = i === sc.length - 1 && sc.length > 1;
+    const d = document.createElement("div");
+    d.className = "score-row" + (row.name === myName ? " me" : "") + (last ? " loser-row" : "");
+    const medal = i === 0 ? "🏆" : i === 1 ? "🥈" : i === 2 ? "🥉" : "";
+    const loser = last ? ' <span class="loser">gros looser 💩</span>' : "";
+    d.innerHTML = '<span class="rank">' + (i + 1) + '</span><span class="medal">' + medal + '</span><span class="nm">' + escapeHtml(row.name) + loser + '</span><span class="pts">' + row.points + "</span>";
+    board.appendChild(d);
+  });
+}
+
+/* ---------- Anneau de compte a rebours ---------- */
 const CIRC = 2 * Math.PI * 56;
 let rafId = null, localEnd = 0, collectActive = false;
 function startCountdownLoop() {
-  if (!collectActive) { collectActive = true; localEnd = Date.now() + (state.collectRemaining || COUNTDOWN_MS); }
+  if (!collectActive) { collectActive = true; localEnd = Date.now() + (state.collectRemaining || COLLECT_MS); }
   if (rafId) return; tickCountdown();
 }
 function stopCountdownLoop() { collectActive = false; if (rafId) { cancelAnimationFrame(rafId); rafId = null; } }
@@ -391,9 +450,22 @@ function tickCountdown() {
   if (!state || state.phase !== "collecting") { stopCountdownLoop(); return; }
   const remain = Math.max(0, localEnd - Date.now());
   $("ringNum").textContent = Math.ceil(remain / 1000);
-  $("ringProg").style.strokeDashoffset = (CIRC * (1 - remain / COUNTDOWN_MS)).toFixed(1);
   $("answerTimer").textContent = "(" + Math.ceil(remain / 1000) + " s)";
+  $("buzzTimer").textContent = "Plus que " + Math.ceil(remain / 1000) + " s";
+  $("ringProg").style.strokeDashoffset = (CIRC * (1 - remain / COLLECT_MS)).toFixed(1);
   rafId = requestAnimationFrame(tickCountdown);
 }
+
+let lobbyCdEnd = 0, lobbyCdTimer = null;
+function startLobbyCd(remaining) {
+  lobbyCdEnd = Date.now() + remaining;
+  if (lobbyCdTimer) return;
+  lobbyCdTimer = setInterval(() => {
+    const r = Math.max(0, lobbyCdEnd - Date.now());
+    $("lobbyCdNum").textContent = Math.ceil(r / 1000);
+    if (r <= 0) { clearInterval(lobbyCdTimer); lobbyCdTimer = null; }
+  }, 200);
+}
+function stopLobbyCd() { if (lobbyCdTimer) { clearInterval(lobbyCdTimer); lobbyCdTimer = null; } }
 
 connect();

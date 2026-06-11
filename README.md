@@ -1,12 +1,12 @@
 # BUZZ! — Blind-test & buzzer multijoueur
 
 Un petit site de jeu de buzzer en temps réel : les joueurs s'inscrivent avec un
-pseudo, l'animateur (le créateur de la partie) charge une vidéo YouTube et lance
+pseudo, l'animateur (le créateur de la partie) choisit un fichier vidéo et lance
 la partie. Le premier qui buzze met la vidéo en pause partout, un compte à rebours
 de 5 s se déclenche, puis les autres votent **bonne réponse / faux**.
 
 Le serveur (Node + WebSocket) fait autorité : c'est lui qui décide du premier
-buzz, gère le compte à rebours et synchronise tout le monde en temps réel.
+buzz, gère la fenêtre de réponse, la révélation et le vote en temps réel.
 
 ## Lancer en local
 
@@ -32,38 +32,52 @@ Variables d'environnement disponibles :
 
 ## Comment on joue
 
-1. Sur l'accueil, deux choix : **Créer une nouvelle partie** ou **Rejoindre
-   une partie** avec un code. Pas de pseudo ni de mot de passe à saisir.
-2. Celui qui **crée** la partie devient l'**animateur** : un **code d'invitation**
-   (4 lettres) s'affiche, à partager (bouton « Copier le code » / « Copier le
-   lien »). L'animateur **joue** comme les autres ET contrôle la partie via le
-   bouton **⚙** (modale) où il charge un **lien YouTube** et clique **Lance la
-   partie**. Si l'animateur quitte, le rôle passe automatiquement au plus ancien
-   joueur restant.
-   Chacun peut, dans la file d'attente, choisir un **pseudo** (optionnel) et se
-   mettre **spectateur** (regarde seulement : ne buzze pas, ne vote pas, hors
-   classement). Le nombre de joueurs est illimité tant que la partie n'est pas
-   lancée.
-3. La vidéo s'affiche au centre, le **classement à côté**, le **buzzer en bas**.
-   On peut **buzzer librement** (autant qu'on veut). Dès qu'un joueur buzze, la
-   vidéo se met en **pause 5 s pour tout le monde** et une **zone de texte**
-   s'ouvre : chaque joueur qui buzze pendant la fenêtre tape sa réponse (gardée
-   en mémoire, masquée aux autres). L'ordre des buzz et l'écart en millisecondes
-   sont enregistrés. Après 5 s, la vidéo repart automatiquement.
-4. Quand il veut, l'**animateur** clique **Révélation** (bouton ⚙) : la vidéo se
-   met en pause pour tout le monde et la **liste des buzz s'affiche dans l'ordre**
-   (avec l'écart en ms et la réponse de chacun). Tout le monde **vote pour le
-   gagnant** ; en cas d'égalité, le plus rapide l'emporte. Le gagnant marque
-   **+1 point**, puis l'animateur lance la **manche suivante**.
+1. Sur l'accueil, deux choix : **Créer une nouvelle partie** ou **Rejoindre une
+   partie** avec un code. Pas de pseudo ni de mot de passe à saisir.
+2. Celui qui **crée** devient l'**animateur** : un **code d'invitation** (4 lettres)
+   s'affiche, à partager (« Copier le code » / « Copier le lien »). Il **joue**
+   comme les autres ET contrôle la partie. Si l'animateur quitte, le rôle passe
+   automatiquement au plus ancien joueur restant.
+3. Dans la file d'attente, chaque joueur **doit choisir un pseudo** (obligatoire :
+   le bouton « prêt » est bloqué tant qu'il est vide) et peut se mettre
+   **spectateur** (regarde seulement). Le nombre de joueurs est illimité. La liste
+   est à gauche, le code d'invitation et les commandes sur le côté.
+   Un bouton **Quitter** (en haut) permet de sortir de la partie à tout moment.
+   Sur **téléphone**, l'affichage passe automatiquement en **mode buzzer** (juste
+   le gros bouton + la saisie de réponse + le vote) : idéal pour jouer autour d'un
+   **écran principal** unique. Un bouton en haut bascule entre mode buzzer et complet.
+   Quand **tous les joueurs actifs sont prêts**, un compte à rebours de 5 s lance la
+   partie automatiquement (l'animateur peut aussi lancer à la main).
+4. L'animateur lance la partie, puis choisit la vidéo dans le **sélecteur** :
+   il suffit de déposer les fichiers (.mp4 de préférence, aussi .webm/.ogg/.m4v/.mov)
+   dans le dossier `public/videos/` du serveur — ils apparaissent dans la liste et
+   sont chargés **pour tous les joueurs**. Un bouton **📁 Fichier local** permet aussi
+   de jouer un fichier présent seulement sur cet écran. L'animateur peut **retirer la
+   vidéo** à tout moment ; elle est aussi déchargée automatiquement au retour en file
+   d'attente. Seul l'animateur pilote la lecture (pause / avance) ; les autres ne
+   règlent que **leur volume**, et tous les écrans sont **synchronisés**.
+5. On peut **buzzer librement**. Au buzz, la vidéo se met en **pause 5 s** et une
+   **zone de texte** s'ouvre : chaque joueur qui buzze pendant la fenêtre tape sa
+   réponse (gardée en mémoire, masquée aux autres) — le curseur se place **directement**
+   dans la case, pas besoin de cliquer. Une fois qu'on a buzzé, son
+   bouton se grise jusqu'à la manche suivante. L'ordre et l'**écart en ms** sont
+   enregistrés. Après 5 s la vidéo repart.
+6. Quand il veut, l'animateur clique **Révélation** (bouton sur l'écran principal) :
+   pause pour tout le monde, la **liste des buzz s'affiche dans l'ordre** (écart en
+   ms + réponse de chacun), et tout le monde **vote pour le gagnant** (égalité → le
+   plus rapide). Le gagnant marque **+1** — ou l'animateur clique **Aucune bonne
+   réponse** (personne ne marque). Puis **Manche suivante**.
+7. Le bouton **Fin de partie** (options ⚙) affiche le **classement final** : 🏆 pour
+   le premier, et le dernier est sacré **« gros looser 💩 »**.
 
-**Lecture synchronisée** : seul l'animateur pilote le lecteur ; sa position est
-diffusée à tous les autres, qui ne peuvent que régler **leur volume**. Les
-**scores** sont cumulés sur toute la partie, affichés en direct, et
-réinitialisables par l'animateur depuis la modale.
+## Dossier des vidéos
 
-Astuce : touche **Espace** pour buzzer. Pour une soirée en présentiel, utilisez
-un seul écran (celui de l'animateur) pour l'image et le son ; le son est coupé
-par défaut sur les autres appareils (bouton pour le réactiver).
+Mets tes fichiers vidéo dans `public/videos/`. Ils sont servis par le serveur et
+apparaissent dans le sélecteur de l'animateur ; comme ils sont chargés par URL,
+tous les joueurs voient la même vidéo. La **lecture est synchronisée** : la
+position de l'animateur est diffusée et chaque écran se recale automatiquement
+(lecture, pause, avance). Tu peux ajuster la finesse dans `public/app.js` (seuil
+de recalage de 0,5 s).
 
 ## Déploiement
 
@@ -111,5 +125,5 @@ buzz-quiz/
   public/
     index.html
     style.css
-    app.js         # client : WebSocket + lecteur YouTube
+    app.js         # client : WebSocket + lecteur video local
 ```

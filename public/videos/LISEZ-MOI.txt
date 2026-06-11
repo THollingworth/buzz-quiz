@@ -1,0 +1,3 @@
+Place ici tes fichiers vidéo (.mp4 de préférence, aussi .webm .ogg .m4v .mov).
+Ils apparaîtront automatiquement dans le sélecteur de vidéos de l'animateur,
+et seront chargés pour tous les joueurs.
