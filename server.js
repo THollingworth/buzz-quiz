@@ -34,8 +34,8 @@ function authRedirect(req, res) {
   if (user) res.redirect("/hub.html");
   else res.redirect("/auth.html");
 }
-app.get("/", authRedirect);
-app.get("/index.html", authRedirect);
+app.get("/", (req, res) => { res.set("Cache-Control", "no-store"); authRedirect(req, res); });
+app.get("/index.html", (req, res) => { res.set("Cache-Control", "no-store"); authRedirect(req, res); });
 
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/avatars", express.static(AVATAR_DIR));
