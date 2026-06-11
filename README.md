@@ -81,6 +81,26 @@ de recalage de 0,5 s).
 
 ## Déploiement
 
+### VPS avec Docker / Portainer (recommandé : toujours allumé)
+
+Un `Dockerfile` et un `docker-compose.yml` sont fournis.
+
+**Via les Stacks Portainer (le plus simple)** : Stacks > Add stack > Repository,
+indique l'URL de ton dépôt Git et `docker-compose.yml` comme chemin du compose,
+puis déploie. Le port est `3000` (modifiable côté hôte dans le compose), et tes
+vidéos vont dans le volume `buzz-videos` (monté sur `/app/public/videos`) — tu peux
+les déposer depuis Portainer (Volumes > buzz-videos > Browse) sans reconstruire.
+
+**En ligne de commande** : `docker compose up -d --build`.
+
+Derrière un reverse proxy (Nginx Proxy Manager, Traefik…) avec un domaine + HTTPS :
+pense à **activer le support WebSocket** (case « Websockets Support » dans NPM, ou
+les labels équivalents Traefik). La page passe alors en `wss://` automatiquement.
+
+### Autres plateformes
+
+
+
 L'appli est un seul service Node qui sert les fichiers statiques **et** la
 connexion WebSocket sur le même port. Elle lit le port via `process.env.PORT`,
 ce qui la rend compatible avec la plupart des hébergeurs.

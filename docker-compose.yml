@@ -1,0 +1,26 @@
+services:
+  buzz:
+    build: .
+    image: buzz-quiz:latest
+    container_name: buzz-quiz
+    restart: unless-stopped
+    ports:
+      # hôte:conteneur — change le port hôte (gauche) si 3000 est déjà pris
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      # Durée (ms) de la fenêtre de réponse après un buzz (défaut 5000)
+      # - COLLECT_MS=5000
+    volumes:
+      # Tes vidéos vivent ici et persistent même si tu reconstruis l'image.
+      # Tu peux les déposer via Portainer (Volumes > buzz-videos > Browse)
+      # ou remplacer par un bind mount, ex : /opt/buzz/videos:/app/public/videos
+      - buzz-videos:/app/public/videos
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  buzz-videos:
