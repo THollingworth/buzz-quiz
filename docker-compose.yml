@@ -8,7 +8,7 @@ services:
       - "3000:3000"
     environment:
       - PORT=3000
-      - COOKIE_SECRET=9fabbc75b741f52d8b81e5b6e52b2965767b80327f16f399650519e12e463c1a
+      - COOKIE_SECRET=changeme-in-production
       # - COLLECT_MS=5000
     volumes:
       - spmg-data:/app/data

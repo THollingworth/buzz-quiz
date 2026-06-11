@@ -143,13 +143,15 @@ app.get("/api/videos", requireAuth, (_req, res) => {
 
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
 
-// Root redirect: auth check, send to hub or auth page
-app.get("/", (req, res) => {
+// Root + index redirect → hub or auth
+function authRedirect(req, res) {
   const token = req.signedCookies && req.signedCookies.session;
   const user = db.userByToken(token);
   if (user) res.redirect("/hub.html");
   else res.redirect("/auth.html");
-});
+}
+app.get("/", authRedirect);
+app.get("/index.html", authRedirect);
 
 /* ============================================================
    BlindZik — Logique jeu WebSocket
