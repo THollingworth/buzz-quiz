@@ -1,41 +1,43 @@
 /* ============================================================
    Chaos Culture — State Machine
-   Phases : lobby → playing → correction → results → ended
    ============================================================ */
 "use strict";
 
-const QUESTION_TIME_MS = 15000;
-const VOTE_TIME_MS = 20000; // temps max par question en correction
+const QUESTION_TIME_MS = 10000;
+const BLIND_TEST_TIME_MS = 30000;
+const PETIT_BAC_TIME_MS = 30000;
+const CHRONOLOGIE_TIME_MS = 20000;
+const ANAGRAMME_TIME_MS = 15000;
+const ANAGRAMME_HINT_DELAY_MS = 7000;
+const GOOGLE_TRAD_TIME_MS = 15000;
+const MEME_MYSTERE_TIME_MS = 20000;
 
-/* ---------- Factory ---------- */
 function createGame(code, questionCount) {
   return {
     code,
-    phase: "lobby",          // lobby | countdown | playing | correction | results | ended
-    questions: [],           // liste tirée au sort
+    phase: "lobby",
+    questions: [],
     questionCount: questionCount || 20,
-    currentQ: -1,            // index question en cours
+    currentQ: -1,
     qTimer: null,
     qEnd: null,
-    correctionQ: -1,         // index question en correction
+    correctionQ: -1,
     correctionTimer: null,
     correctionEnd: null,
     lobbyTimer: null,
     lobbyCountdownEnd: null,
-    // answers[questionIdx] = Map<clientId, { name, text, avatar }>
-    answers: [],
-    // votes[questionIdx][clientId] = Map<targetClientId, "vrai"|"faux"|"honte">
-    votes: [],
-    // résultats calculés par question
-    results: [],             // [{clientId, name, verdict, voteCount}]
-    scores: new Map(),       // pseudo → points
-    shameScores: new Map(),  // pseudo → points honte (négatifs cumulés)
-    clients: new Map(),      // clientId → { ws, name, isAdmin, ready, spectator, userId, avatar }
+    answers: [],   // answers[qIdx] = Map<clientId, { name, text, avatar }>
+    votes: [],     // votes[qIdx] = Map<voterId, Map<targetId, verdict>>
+    results: [],   // results[qIdx] = array of result objects | null
+    tieData: null,
+    blindSinger: null, // clientId of player who sees blind_test title // { qIdx, tied: [{clientId, name, text}] } — admin picks winner
+    scores: new Map(),
+    shameScores: new Map(),
+    clients: new Map(),
     seq: 0,
   };
 }
 
-/* ---------- Helpers ---------- */
 function activePlayers(game) {
   return [...game.clients.entries()].filter(([, c]) => !c.spectator);
 }
@@ -56,39 +58,51 @@ function shameBoard(game) {
   return out.sort((a, b) => a.pts - b.pts);
 }
 
-/* ---------- Public state ---------- */
 function publicState(game) {
   const q = game.questions[game.currentQ] || null;
   const cq = game.questions[game.correctionQ] || null;
 
-  // Answers for current correction question (revealed during correction)
   let correctionAnswers = null;
   if (game.phase === "correction" && game.correctionQ >= 0) {
     const ansMap = game.answers[game.correctionQ] || new Map();
+    const cq = game.questions[game.correctionQ];
     correctionAnswers = [...ansMap.entries()].map(([cid, a]) => ({
-      clientId: cid,
-      name: a.name,
-      text: a.text,
-      avatar: a.avatar || null,
+      clientId: cid, name: a.name, text: a.text, avatar: a.avatar || null,
+      // For petit_bac, parse JSON into categories
+      petitBacCats: (cq && cq.type === "petit_bac" && a.text) ? (() => { try { return JSON.parse(a.text); } catch { return {}; } })() : null,
     }));
-    // votes cast so far for this question
   }
 
   let correctionVotes = null;
+  let voteProgress = null; // { playerId: { done: bool, remaining: int } }
   if (game.phase === "correction" && game.correctionQ >= 0) {
     const vMap = game.votes[game.correctionQ] || new Map();
-    // { voterClientId → { targetClientId → verdict } }
+    const ansMap = game.answers[game.correctionQ] || new Map();
+    const answerIds = [...ansMap.keys()];
     const out = {};
-    vMap.forEach((targets, voterId) => {
-      out[voterId] = Object.fromEntries(targets);
-    });
+    vMap.forEach((targets, voterId) => { out[voterId] = Object.fromEntries(targets); });
     correctionVotes = out;
+
+    // vote progress per active player
+    voteProgress = {};
+    for (const [cid] of activePlayers(game)) {
+      const myVotes = vMap.get(cid) || new Map();
+      const total = answerIds.length;
+      const done = answerIds.filter(tid => myVotes.has(tid)).length;
+      voteProgress[cid] = { done: done >= total && total > 0, remaining: Math.max(0, total - done) };
+    }
   }
 
   const players = [...game.clients.entries()].map(([id, c]) => ({
     id, name: c.name, isAdmin: c.isAdmin, ready: c.ready, spectator: c.spectator,
     avatar: c.avatar || null,
   }));
+
+  // answeredCount for playing phase (how many have submitted)
+  let answeredCount = 0;
+  if (game.phase === "playing" && game.currentQ >= 0) {
+    answeredCount = (game.answers[game.currentQ] || new Map()).size;
+  }
 
   return {
     type: "chaos_state",
@@ -98,20 +112,27 @@ function publicState(game) {
     totalQ: game.questions.length,
     correctionQ: game.correctionQ,
     qRemaining: game.qEnd ? Math.max(0, game.qEnd - Date.now()) : 0,
-    correctionRemaining: game.correctionEnd ? Math.max(0, game.correctionEnd - Date.now()) : 0,
     lobbyCountdownRemaining: game.lobbyCountdownEnd ? Math.max(0, game.lobbyCountdownEnd - Date.now()) : 0,
-    question: q ? { id: q.id, type: q.type, question: q.question, choices: q.choices } : null,
+    question: q ? {
+      id: q.id, type: q.type, question: q.question, choices: q.choices,
+      // blind_test: only singer sees the title
+      blindSinger: game.blindSinger || null,
+    } : null,
     correctionQuestion: cq ? { id: cq.id, type: cq.type, question: cq.question, answer: cq.answer, choices: cq.choices } : null,
     correctionAnswers,
     correctionVotes,
+    voteProgress,
     correctionResults: game.results[game.correctionQ] || null,
+    tieData: game.tieData,
+    answeredCount,
+    totalPlayers: activePlayers(game).length,
     scores: scoreboard(game),
     shameBoard: shameBoard(game),
     players,
   };
 }
 
-/* ---------- Vote calculation ---------- */
+/* ---------- Vote calculation — ALL by vote majority ---------- */
 function calcVerdicts(game, qIdx) {
   const ansMap = game.answers[qIdx] || new Map();
   const vMap = game.votes[qIdx] || new Map();
@@ -119,7 +140,45 @@ function calcVerdicts(game, qIdx) {
   const results = [];
 
   for (const [cid, ans] of ansMap) {
-    // Tally votes for this target
+    // blind_test: singer has no verdict (they just sang)
+    if (q.type === "blind_test" && cid === game.blindSinger) {
+      results.push({ clientId: cid, name: ans.name, text: ans.text, verdict: "singer", isSinger: true, vraiCount: 0, fauxCount: 0, honteCount: 0 });
+      continue;
+    }
+
+    // petit_bac: calculate per-category verdicts
+    if (q.type === "petit_bac") {
+      const cats = q.choices || [];
+      let catData = {};
+      try { catData = JSON.parse(ans.text || "{}"); } catch {}
+      const catResults = {};
+      for (const cat of cats) {
+        const targetKey = cid + "___" + cat;
+        let vr = 0, fa = 0, ho = 0;
+        vMap.forEach(targets => {
+          const v = targets.get(targetKey);
+          if (v === "vrai") vr++;
+          else if (v === "faux") fa++;
+          else if (v === "honte") ho++;
+        });
+        const max = Math.max(vr, fa, ho);
+        const total = vr + fa + ho;
+        let cv;
+        if (total === 0) cv = "faux";
+        else {
+          const leaders = [];
+          if (vr === max) leaders.push("vrai");
+          if (fa === max) leaders.push("faux");
+          if (ho === max) leaders.push("honte");
+          cv = leaders.length === 1 ? leaders[0] : "tie";
+        }
+        catResults[cat] = { verdict: cv, vraiCount: vr, fauxCount: fa, honteCount: ho, text: catData[cat] || "" };
+      }
+      results.push({ clientId: cid, name: ans.name, text: ans.text, verdict: "petit_bac", catResults, vraiCount: 0, fauxCount: 0, honteCount: 0 });
+      continue;
+    }
+
+    // Standard verdict
     let vraiCount = 0, fauxCount = 0, honteCount = 0;
     vMap.forEach((targets) => {
       const v = targets.get(cid);
@@ -127,84 +186,43 @@ function calcVerdicts(game, qIdx) {
       else if (v === "faux") fauxCount++;
       else if (v === "honte") honteCount++;
     });
-
-    let verdict;
+    const max = Math.max(vraiCount, fauxCount, honteCount);
     const total = vraiCount + fauxCount + honteCount;
-
-    if (total === 0) {
-      // Auto-types (vrai_faux, plus_proche handled separately)
-      verdict = "faux";
-    } else if (honteCount > vraiCount && honteCount > fauxCount) {
-      verdict = "honte";
-    } else if (vraiCount >= fauxCount) {
-      verdict = "vrai";
-    } else {
-      verdict = "faux";
+    let verdict, tie = false;
+    if (total === 0) { verdict = "faux"; }
+    else {
+      const leaders = [];
+      if (vraiCount === max) leaders.push("vrai");
+      if (fauxCount === max) leaders.push("faux");
+      if (honteCount === max) leaders.push("honte");
+      verdict = leaders.length === 1 ? leaders[0] : "tie";
+      tie = verdict === "tie";
     }
-
-    // Override: auto-correct for vrai_faux
-    if (q.type === "vrai_faux" && q.answer) {
-      const submitted = (ans.text || "").toLowerCase().trim();
-      verdict = submitted === q.answer.toLowerCase().trim() ? "vrai" : "faux";
-    }
-
-    // Override: plus_proche → winner gets vrai, others faux
-    // (handled after loop)
-
-    results.push({ clientId: cid, name: ans.name, text: ans.text, verdict, vraiCount, fauxCount, honteCount });
-  }
-
-  // plus_proche: find closest to answer
-  if (q.type === "plus_proche" && q.answer) {
-    const target = parseFloat(q.answer);
-    let bestDist = Infinity, bestCid = null;
-    for (const r of results) {
-      const val = parseFloat((r.text || "").replace(/[^\d.,\-]/g, "").replace(",", "."));
-      if (!isNaN(val)) {
-        const dist = Math.abs(val - target);
-        if (dist < bestDist) { bestDist = dist; bestCid = r.clientId; }
-      }
-    }
-    for (const r of results) {
-      r.verdict = r.clientId === bestCid ? "vrai" : "faux";
-    }
-  }
-
-  // susceptible: player with most votes gets +1 (no correction vote, handled by vote susceptible)
-  // For susceptible, correctionAnswers = who each player voted for
-  if (q.type === "susceptible") {
-    // votes = { voterId → { targetClientId: "vrai" } } (target = pseudo voté)
-    // Count votes per target name
-    const tally = new Map();
-    vMap.forEach((targets) => {
-      targets.forEach((verdict, tid) => {
-        tally.set(tid, (tally.get(tid) || 0) + 1);
-      });
-    });
-    let maxVotes = 0;
-    tally.forEach(c => { if (c > maxVotes) maxVotes = c; });
-    const winners = [];
-    tally.forEach((c, cid) => { if (c === maxVotes && maxVotes > 0) winners.push(cid); });
-    // voters who voted for a winner also get +1
-    const winnerSet = new Set(winners);
-    for (const r of results) {
-      if (winnerSet.has(r.clientId)) r.verdict = "vrai";
-      else r.verdict = "faux";
-      r.votesReceived = tally.get(r.clientId) || 0;
-    }
-    // Also give +1 to voters who voted for majority
-    // We'll handle voter points separately in applyVerdicts
-    results._susceptibleWinners = winners;
+    results.push({ clientId: cid, name: ans.name, text: ans.text, verdict, tie, vraiCount, fauxCount, honteCount });
   }
 
   return results;
 }
 
 function applyVerdicts(game, qIdx, results) {
-  const q = game.questions[qIdx];
-  const vMap = game.votes[qIdx] || new Map();
-
   for (const r of results) {
+    if (r.verdict === "singer") continue; // no points for singer
+
+    if (r.verdict === "petit_bac" && r.catResults) {
+      let pts = 0, shame = 0;
+      const vals = Object.values(r.catResults);
+      for (const cv of vals) {
+        if (cv.verdict === "vrai") pts++;
+        else if (cv.verdict === "honte") { pts--; shame--; }
+      }
+      const bonus = vals.length >= 5 && vals.filter(cv => cv.verdict === "vrai").length === vals.length;
+      if (bonus) pts++;
+      if (pts !== 0) game.scores.set(r.name, (game.scores.get(r.name) || 0) + pts);
+      if (shame < 0) game.shameScores.set(r.name, (game.shameScores.get(r.name) || 0) + shame);
+      r.bonusPetitBac = bonus;
+      continue;
+    }
+
     if (r.verdict === "vrai") {
       game.scores.set(r.name, (game.scores.get(r.name) || 0) + 1);
     } else if (r.verdict === "honte") {
@@ -212,30 +230,11 @@ function applyVerdicts(game, qIdx, results) {
       game.shameScores.set(r.name, (game.shameScores.get(r.name) || 0) - 1);
     }
   }
-
-  // susceptible: voters who voted for winner also get +1
-  if (q.type === "susceptible" && results._susceptibleWinners) {
-    const winSet = new Set(results._susceptibleWinners);
-    vMap.forEach((targets, voterId) => {
-      targets.forEach((v, tid) => {
-        if (winSet.has(tid)) {
-          // find voter name
-          const client = game.clients.get(voterId);
-          if (client) game.scores.set(client.name, (game.scores.get(client.name) || 0) + 1);
-        }
-      });
-    });
-  }
 }
 
 module.exports = {
-  createGame,
-  activePlayers,
-  publicState,
-  scoreboard,
-  shameBoard,
-  calcVerdicts,
-  applyVerdicts,
-  QUESTION_TIME_MS,
-  VOTE_TIME_MS,
+  createGame, activePlayers, publicState, scoreboard, shameBoard,
+  calcVerdicts, applyVerdicts,
+  QUESTION_TIME_MS, BLIND_TEST_TIME_MS, PETIT_BAC_TIME_MS,
+  CHRONOLOGIE_TIME_MS, ANAGRAMME_TIME_MS, ANAGRAMME_HINT_DELAY_MS, GOOGLE_TRAD_TIME_MS, MEME_MYSTERE_TIME_MS,
 };

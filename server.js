@@ -16,7 +16,7 @@ const chaosDbModule = require("./chaos-db");
 const chaosServer = require("./chaos-server");
 
 const PORT = process.env.PORT || 3000;
-const COLLECT_MS = Number(process.env.COLLECT_MS || 5000);
+const COLLECT_MS = Number(process.env.COLLECT_MS || 8000);
 const COOKIE_SECRET = process.env.COOKIE_SECRET || "spmg-secret-change-in-prod";
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const AVATAR_DIR = path.join(DATA_DIR, "avatars");
@@ -189,7 +189,7 @@ function createRoomObj(code) {
     vsync: { time: 0, playing: false, at: Date.now() },
     lobbyTimer: null, lobbyCountdownEnd: null,
     buzzes: [], collectTimer: null, collectEnd: null,
-    revealVotes: new Map(), revealDecided: false, lastWinner: null, revealOutcome: null,
+    revealVotes: new Map(), revealDecided: false, lastWinner: null, revealOutcome: null, tieWinners: null,
     clients: new Map(), scores: new Map()
   };
 }
@@ -214,6 +214,7 @@ function publicState(room) {
     lobbyCountdownRemaining: room.lobbyCountdownEnd ? Math.max(0, room.lobbyCountdownEnd - Date.now()) : 0,
     revealVotes: [...room.revealVotes.entries()].map(([voter, cand]) => ({ voter, cand })),
     revealDecided: room.revealDecided, lastWinner: room.lastWinner, revealOutcome: room.revealOutcome,
+    tieWinners: room.tieWinners || null,
     players, scores: scoreboard(room)
   };
 }
@@ -236,6 +237,7 @@ function relayVsync(room) {
   for (const c of room.clients.values()) if (!c.isAdmin && c.ws.readyState === 1) c.ws.send(msg);
 }
 function startCollect(room) {
+  if (room.phase === "collecting") return; // keep existing timer
   room.phase = "collecting"; room.collectEnd = Date.now() + COLLECT_MS;
   clearTimeout(room.collectTimer);
   room.collectTimer = setTimeout(() => {
@@ -262,14 +264,22 @@ function closeReveal(room) {
     if (c > best) { best = c; winners = [b]; }
     else if (c === best) winners.push(b);
   }
-  if (winners.length === 1 && best > 0) {
-    const winner = winners[0];
-    room.scores.set(winner.name, (room.scores.get(winner.name) || 0) + 1);
-    room.lastWinner = { id: winner.id, name: winner.name, votes: best };
-    room.revealOutcome = "win";
+  if (best > 0 && winners.length >= 1) {
+    // Tie = all winners get the point
+    for (const winner of winners) {
+      room.scores.set(winner.name, (room.scores.get(winner.name) || 0) + 1);
+    }
+    if (winners.length === 1) {
+      room.lastWinner = { id: winners[0].id, name: winners[0].name, votes: best };
+      room.revealOutcome = "win";
+    } else {
+      room.lastWinner = null;
+      room.revealOutcome = "tie";
+      room.tieWinners = winners.map(w => ({ id: w.id, name: w.name }));
+    }
   } else {
     room.lastWinner = null;
-    room.revealOutcome = best > 0 ? "tie" : "none";
+    room.revealOutcome = "none";
   }
   room.revealDecided = true;
   broadcast(room);
@@ -282,7 +292,7 @@ function maybeAutoCloseReveal(room) {
 function nextRound(room) {
   clearTimeout(room.collectTimer); room.collectEnd = null;
   room.phase = "playing"; room.buzzes = []; room.revealVotes.clear();
-  room.revealDecided = false; room.lastWinner = null; room.revealOutcome = null; room.round = (room.round || 0) + 1;
+  room.revealDecided = false; room.lastWinner = null; room.revealOutcome = null; room.tieWinners = null; room.round = (room.round || 0) + 1;
   broadcast(room);
 }
 function cancelLobbyCountdown(room) {

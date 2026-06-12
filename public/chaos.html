@@ -6,142 +6,181 @@
 <title>Chaos Culture — SPMG</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="hub.css">
 <link rel="stylesheet" href="chaos.css">
 </head>
 <body>
+<div class="wrap">
 
-<!-- HEADER -->
-<header class="cc-header">
-  <a href="/hub.html" class="back-btn">← Hub</a>
-  <div class="cc-logo"><span class="lo-c">Chaos</span> <span class="lo-k">Culture</span></div>
-  <div class="header-user" id="headerUser">
-    <div class="avatar-fallback" id="headerAvatar">?</div>
-    <span id="headerPseudo">...</span>
-  </div>
-</header>
-
-<!-- SCREENS -->
-
-<!-- LOBBY LIST -->
-<div id="screenLobbyList" class="screen active">
-  <div class="cc-main">
-    <h1 class="screen-title">Rejoindre une partie</h1>
-    <div class="action-row">
-      <button class="btn btn-primary" id="btnCreate">🎲 Créer une table</button>
-    </div>
-    <div class="join-row">
-      <input id="joinCode" class="code-input" placeholder="Code XXXX" maxlength="4">
-      <button class="btn btn-secondary" id="btnJoin">Rejoindre</button>
-    </div>
-    <div id="roomList" class="room-list"></div>
-  </div>
-</div>
-
-<!-- CREATE MODAL -->
-<div id="modalCreate" class="modal hidden">
-  <div class="modal-box">
-    <h2 class="modal-title">Nouvelle partie</h2>
-    <label class="field-label">Nombre de questions</label>
-    <div class="choice-row" id="qCountChoices">
-      <button class="choice-btn active" data-val="20">20</button>
-      <button class="choice-btn" data-val="30">30</button>
-      <button class="choice-btn" data-val="40">40</button>
-      <button class="choice-btn" data-val="50">50</button>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-ghost" id="btnCreateCancel">Annuler</button>
-      <button class="btn btn-primary" id="btnCreateConfirm">Créer</button>
+  <!-- HEADER -->
+  <div class="top">
+    <div class="logo"><span class="b">Chaos</span><span class="z"> Culture</span></div>
+    <div class="top-right">
+      <div class="bz-user-info" id="bzUserInfo" style="cursor:pointer;" id="headerProfileBtn">
+        <div class="bz-avatar-wrap">
+          <img class="bz-avatar-img" id="headerAvatar" src="" alt="" style="display:none">
+          <div class="bz-avatar-fallback" id="avatarFallback"></div>
+        </div>
+        <span class="bz-pseudo" id="headerPseudo"></span>
+      </div>
+      <span id="ccRoomCode" class="bz-room-code hidden"></span>
+      <a href="/hub.html" class="btn ghost small" style="width:auto;">🏠 Menu des jeux</a>
+      <button class="btn ghost small" id="quitBtn" style="display:none;width:auto;">Quitter la partie</button>
     </div>
   </div>
-</div>
 
-<!-- LOBBY -->
-<div id="screenLobby" class="screen hidden">
-  <div class="cc-main">
-    <div class="room-code-box">
-      <span class="room-code-label">Code de la salle</span>
-      <span class="room-code" id="lobbyCode">----</span>
-    </div>
-    <div id="countdownBanner" class="countdown-banner hidden">
-      🚀 Démarrage dans <strong id="countdownSec">5</strong>s
-    </div>
-    <div class="lobby-grid" id="lobbyPlayers"></div>
-    <div class="lobby-footer">
-      <button class="btn btn-secondary" id="btnReady">✅ Prêt</button>
-      <button class="btn btn-primary hidden" id="btnForceStart">▶ Lancer</button>
-    </div>
-    <div class="q-info" id="lobbyQInfo"></div>
-  </div>
-</div>
-
-<!-- PLAYING -->
-<div id="screenPlaying" class="screen hidden">
-  <div class="cc-main">
-    <div class="q-header">
-      <div class="q-progress">
-        <div class="q-progress-bar" id="qProgressBar"></div>
+  <!-- MODAL PROFIL -->
+  <div class="modal hidden" id="profileModal">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Mon profil</h2>
+        <button class="modal-close" id="closeProfile">✕</button>
       </div>
-      <div class="q-meta">
-        <span id="qNum" class="q-num">Q1</span>
-        <span id="qType" class="q-type-badge"></span>
-        <span id="qTimer" class="q-timer">15</span>
+      <div class="profile-avatar-section">
+        <div class="profile-avatar-wrap">
+          <img class="profile-avatar-img" id="profileAvatarImg" src="" alt="">
+          <div class="profile-avatar-fallback" id="profileAvatarFallback"></div>
+        </div>
+        <label class="btn ghost small" for="avatarFile" style="cursor:pointer;">📷 Changer la photo</label>
+        <input type="file" id="avatarFile" accept="image/*" style="display:none">
       </div>
-    </div>
-    <div class="q-card" id="qCard">
-      <div class="q-text" id="qText"></div>
-      <div id="qChoices" class="q-choices hidden"></div>
-      <div id="qInput" class="q-input-area hidden">
-        <input id="answerInput" class="answer-input" placeholder="Ta réponse…" maxlength="200" autocomplete="off">
-        <button class="btn btn-primary" id="btnAnswer">Envoyer</button>
+      <div class="profile-section">
+        <label>Pseudo</label>
+        <div class="row">
+          <input type="text" id="pseudoInput" maxlength="20" placeholder="Ton pseudo">
+          <button class="btn ghost small" id="savePseudo" style="width:auto;">Sauvegarder</button>
+        </div>
+        <p class="hint" id="pseudoMsg"></p>
       </div>
-      <div id="qVF" class="q-vf hidden">
-        <button class="vf-btn vf-vrai" data-val="vrai">✅ VRAI</button>
-        <button class="vf-btn vf-faux" data-val="faux">❌ FAUX</button>
+      <div class="profile-section">
+        <label>Historique des parties (10 dernières)</label>
+        <div class="history-list" id="historyList"><span class="empty">Chargement…</span></div>
       </div>
-      <div id="qAnswered" class="q-answered hidden">
-        <div class="answered-icon">✓</div>
-        <div class="answered-label">Réponse envoyée !</div>
-        <div id="answeredCount" class="answered-count"></div>
+      <div style="margin-top:18px;">
+        <button class="btn ghost" id="logoutBtn">🚪 Se déconnecter</button>
       </div>
     </div>
   </div>
-</div>
 
-<!-- CORRECTION -->
-<div id="screenCorrection" class="screen hidden">
-  <div class="cc-main correction-main">
-    <div class="corr-header">
-      <span class="corr-label">Phase de correction</span>
-      <span id="corrQNum" class="corr-qnum"></span>
-      <div class="corr-timer-bar-wrap"><div class="corr-timer-bar" id="corrTimerBar"></div></div>
+  <!-- LOBBY LIST -->
+  <section id="secHome">
+    <div class="card" style="max-width:560px;margin:0 auto;">
+      <h2>🌀 Chaos Culture</h2>
+      <p class="sub">Crée une partie ou rejoins avec un code.</p>
+      <button class="btn" id="btnCreate">🎲 Créer une partie</button>
+      <div class="hr"><span>ou</span></div>
+      <label for="joinCode">Rejoindre avec un code</label>
+      <div class="row">
+        <input type="text" id="joinCode" maxlength="4" placeholder="ex. ABCD" autocomplete="off" style="text-transform:uppercase;letter-spacing:2px;">
+        <button class="btn secondary" id="btnJoin">Rejoindre</button>
+      </div>
+      <p id="joinErr" style="color:var(--no);font-size:13px;margin:8px 0 0;display:none;">Code introuvable.</p>
     </div>
-    <div class="corr-question" id="corrQuestion"></div>
-    <div id="corrAnswersList" class="corr-answers-list"></div>
-    <div id="corrResults" class="corr-results hidden"></div>
-    <div id="corrAdminBar" class="corr-admin-bar hidden">
-      <button class="btn btn-ghost" id="btnNextCorr">Suivant →</button>
-    </div>
-  </div>
-</div>
+    <div id="roomList" style="max-width:560px;margin:16px auto 0;"></div>
+  </section>
 
-<!-- RESULTS -->
-<div id="screenResults" class="screen hidden">
-  <div class="cc-main">
-    <h1 class="screen-title">🏆 Résultats</h1>
-    <div id="finalScores" class="final-scores"></div>
-    <div id="shameSection" class="shame-section hidden">
-      <h2 class="shame-title">🍅 Classement de la honte</h2>
-      <div id="shameScores"></div>
-    </div>
-    <div id="resultsAdminBar" class="results-admin-bar hidden">
-      <button class="btn btn-secondary" id="btnPlayAgain">🔄 Rejouer</button>
-    </div>
-  </div>
-</div>
+  <!-- CREATE MODAL supprimé — création directe -->
 
-<!-- ERROR TOAST -->
-<div id="toast" class="toast hidden"></div>
+  <!-- LOBBY -->
+  <section id="secLobby" style="display:none;">
+    <div class="card" style="max-width:640px;margin:0 auto 16px;">
+      <div style="text-align:center;margin-bottom:16px;">
+        <div class="sub">Code de la salle</div>
+        <div class="cc-room-code-big" id="lobbyCode">----</div>
+      </div>
+      <div id="countdownBanner" class="cc-countdown hidden">
+        🚀 Démarrage dans <strong id="countdownSec">5</strong>s
+      </div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:14px;">
+        <span class="sub">Questions :</span>
+        <input type="number" id="lobbyQCount" class="cc-qcount-select" min="5" max="100" value="20" style="display:none;width:80px;text-align:center;">
+        <span id="lobbyQCountDisplay" class="sub" style="font-weight:700;"></span>
+      </div>
+      <div id="lobbyPlayers" class="cc-player-grid"></div>
+      <div style="display:flex;gap:10px;justify-content:center;margin-top:16px;">
+        <button class="btn secondary" id="btnReady">⬜ Prêt</button>
+        <button class="btn" id="btnForceStart" style="display:none;">▶ Lancer</button>
+      </div>
+    </div>
+  </section>
 
+  <!-- PLAYING -->
+  <section id="secPlaying" style="display:none;">
+    <div style="max-width:680px;margin:0 auto;">
+      <div class="cc-q-header">
+        <div class="cc-progress"><div class="cc-progress-bar" id="qProgressBar"></div></div>
+        <div class="cc-q-meta">
+          <span id="qNum" class="cc-qnum">Q1</span>
+          <span id="qType" class="badge"></span>
+          <span id="qTimer" class="cc-timer">15</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="cc-q-text" id="qText"></div>
+        <div id="qChoices" class="cc-choices" style="display:none;"></div>
+        <div id="qInput" style="display:none;">
+          <input id="answerInput" class="cc-answer-input" placeholder="Ta réponse…" maxlength="200" autocomplete="off">
+          <div class="sub" style="margin-top:6px;font-size:12px;">Ta réponse est enregistrée en temps réel — tu peux la modifier jusqu'à la fin du timer.</div>
+        </div>
+        <div id="qVF" style="display:none;">
+          <div class="cc-vf-row">
+            <button class="cc-vf-btn cc-vf-vrai" data-val="vrai">✅ VRAI</button>
+            <button class="cc-vf-btn cc-vf-faux" data-val="faux">❌ FAUX</button>
+          </div>
+          <div class="sub" style="margin-top:6px;font-size:12px;text-align:center;">Tu peux changer jusqu'à la fin du timer.</div>
+        </div>
+        <div id="qAnsweredInfo" class="sub" style="text-align:right;margin-top:10px;font-size:12px;"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CORRECTION -->
+  <section id="secCorrection" style="display:none;">
+    <div class="cc-corr-layout">
+      <div class="cc-corr-main" style="max-width:720px;">
+        <div class="cc-corr-header">
+          <span class="sub" style="text-transform:uppercase;font-size:12px;letter-spacing:.5px;">Phase de correction</span>
+          <span id="corrQNum" class="sub"></span>
+        </div>
+        <div class="card" id="corrQuestionCard" style="margin-bottom:14px;">
+          <div id="corrQType" class="badge" style="margin-bottom:8px;"></div>
+          <div id="corrQText" class="cc-q-text" style="font-size:17px;"></div>
+          <div id="corrQAnswer" style="display:none;" class="cc-correct-answer"></div>
+        </div>
+        <div id="corrAnswersList"></div>
+        <!-- Tie resolution -->
+        <div id="tiePanel" class="card hidden" style="border-color:var(--spotlight);margin-bottom:14px;">
+          <div style="font-family:var(--display);font-size:16px;font-weight:700;margin-bottom:12px;color:var(--spotlight);">⚖️ Égalité — admin tranche</div>
+          <div id="tieList"></div>
+        </div>
+        <div id="corrAdminBar" style="display:none;text-align:right;margin-top:8px;">
+          <button class="btn secondary" id="btnNextCorr">Valider les votes →</button>
+        </div>
+      </div>
+      <!-- Vote progress sidebar -->
+      <div class="cc-vote-sidebar" id="voteProgressPanel"></div>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section id="secResults" style="display:none;">
+    <div style="max-width:600px;margin:0 auto;">
+      <h2 style="text-align:center;margin-bottom:20px;">🏆 Résultats</h2>
+      <div id="finalScores"></div>
+      <div id="shameSection" style="display:none;margin-top:24px;">
+        <h3 style="font-family:var(--display);color:var(--spotlight);margin-bottom:12px;">🍅 Classement de la honte</h3>
+        <div id="shameScores"></div>
+      </div>
+      <div id="resultsAdminBar" style="display:none;text-align:center;margin-top:24px;">
+        <button class="btn secondary" id="btnPlayAgain">🔄 Rejouer</button>
+      </div>
+    </div>
+  </section>
+
+</div><!-- /wrap -->
+
+<div id="toast" class="cc-toast hidden"></div>
 <script src="chaos.js"></script>
 </body>
 </html>

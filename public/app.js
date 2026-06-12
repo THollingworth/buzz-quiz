@@ -39,8 +39,8 @@ function sendMsg(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o));
 
 function handleServer(m) {
   if (m.type === "welcome") { myId = m.id; return; }
-  if (m.type === "created") { myRole = "admin"; myRoom = m.room; if (m.id) myId = m.id; return; }
-  if (m.type === "joined") { myRole = "player"; myRoom = m.room; if (m.id) myId = m.id; return; }
+  if (m.type === "created") { myRole = "admin"; myRoom = m.room; if (m.id) myId = m.id; showBzRoomCode(m.room); return; }
+  if (m.type === "joined") { myRole = "player"; myRoom = m.room; if (m.id) myId = m.id; showBzRoomCode(m.room); return; }
   if (m.type === "join_error") { $("joinErr").style.display = "block"; myRole = null; return; }
   if (m.type === "promoted") { myRole = "admin"; applyVideoControls(); toast("Tu es maintenant l'animateur 🎬"); return; }
   if (m.type === "left") { resetToHome(); return; }
@@ -196,18 +196,36 @@ function showHome() {
   renderRooms();
 }
 
+function showBzRoomCode(code) {
+  const el = document.getElementById("bzRoomCode");
+  if (!el) return;
+  el.textContent = code;
+  el.classList.remove("hidden");
+}
+function hideBzRoomCode() {
+  const el = document.getElementById("bzRoomCode");
+  if (el) el.classList.add("hidden");
+}
+
 function resetToHome() {
   myRole = null; myRoom = ""; state = null; lastRoundSeen = -1;
   videoListLoaded = false; localFileChosen = false; loadedVideoName = null; hasVideo = false;
   try { videoEl.pause(); videoEl.removeAttribute("src"); videoEl.load(); } catch (_) {}
   sendMsg({ type: "listRooms" });
+  hideBzRoomCode();
   showHome();
-  }
+}
 
 let answerTimer = null;
+let answerSubmitted = false;
 $("answerInput").addEventListener("input", () => {
+  if (answerSubmitted) return;
   clearTimeout(answerTimer);
-  answerTimer = setTimeout(() => sendMsg({ type: "answer", text: $("answerInput").value }), 200);
+  answerTimer = setTimeout(() => {
+    sendMsg({ type: "answer", text: $("answerInput").value });
+    answerSubmitted = true;
+    $("answerInput").readOnly = true;
+  }, 200);
 });
 
 function meEntry() { return state ? state.players.find((p) => p.id === myId) : null; }
@@ -218,7 +236,8 @@ function doBuzz() {
   if (state.buzzes && state.buzzes.some((b) => b.id === myId)) return;
   $("buzzer").classList.add("pressed"); setTimeout(() => $("buzzer").classList.remove("pressed"), 150);
   sendMsg({ type: "buzz" });
-  const ai = $("answerInput"); ai.value = ""; show("answerZone", true); ai.focus();
+  answerSubmitted = false;
+  const ai = $("answerInput"); ai.value = ""; ai.readOnly = false; show("answerZone", true); ai.focus();
 }
 $("buzzer").onclick = doBuzz;
 document.addEventListener("keydown", (e) => {
@@ -308,7 +327,7 @@ function renderScores(el) {
 
 function onState() {
   const me0 = meEntry(); if (me0) myName = me0.name;
-  if (state.round !== lastRoundSeen) { lastRoundSeen = state.round; $("answerInput").value = ""; }
+  if (state.round !== lastRoundSeen) { lastRoundSeen = state.round; $("answerInput").value = ""; answerSubmitted = false; $("answerInput").readOnly = false; }
     const ph = state.phase;
   const inGame = ["playing", "collecting", "reveal"].includes(ph);
   const ended = ph === "ended";
@@ -406,6 +425,16 @@ function renderGame() {
   }
 
   show("answerZone", s.phase === "collecting" && iBuzzed && !spec);
+  if (s.phase === "collecting" && iBuzzed && !spec) {
+    const ai = $("answerInput");
+    if (answerSubmitted) {
+      ai.readOnly = true;
+    }
+    // Only focus if we just buzzed (field is empty and not submitted)
+    // Don't steal focus from existing input
+  }
+  // Reset on new round
+  if (s.phase === "playing") { answerSubmitted = false; $("answerInput").readOnly = false; }
   show("revealZone", s.phase === "reveal");
   if (s.phase === "reveal") renderReveal(s, spec);
 
