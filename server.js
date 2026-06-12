@@ -12,6 +12,8 @@ const cookieParser = require("cookie-parser");
 const multer = require("multer");
 const { WebSocketServer } = require("ws");
 const db = require("./db");
+const chaosDbModule = require("./chaos-db");
+const chaosServer = require("./chaos-server");
 
 const PORT = process.env.PORT || 3000;
 const COLLECT_MS = Number(process.env.COLLECT_MS || 5000);
@@ -156,6 +158,13 @@ app.get("/blindzik", (req, res) => {
   const user = db.userByToken(token);
   if (!user) return res.redirect("/auth.html");
   res.sendFile(require("path").join(__dirname, "public", "index.html"));
+});
+
+app.get("/chaos", (req, res) => {
+  const token = req.signedCookies && req.signedCookies.session;
+  const user = db.userByToken(token);
+  if (!user) return res.redirect("/auth.html");
+  res.sendFile(path.join(__dirname, "public", "chaos.html"));
 });
 
 app.get("/healthz", (_req, res) => res.json({ ok: true }));
@@ -363,10 +372,26 @@ wss.on("connection", (ws, req) => {
   send(ws, { type: "welcome", id: ws.clientId, authenticated: !!wsUser, pseudo: ws.userName, avatar: ws.userAvatar });
   send(ws, { type: "rooms", rooms: roomSummary() });
 
+  // Init chaos identity on socket
+  ws.chaosId = "ch" + ws.clientId;
+  ws.chaosRoom = null;
+  ws.chaosUserId = ws.userId;
+  ws.chaosName = ws.userName;
+  ws.chaosAvatar = ws.userAvatar;
+  send(ws, { type: "chaos_welcome", id: ws.chaosId, pseudo: ws.chaosName, avatar: ws.chaosAvatar });
+  send(ws, { type: "chaos_rooms", rooms: chaosServer.chaosRoomSummary() });
+
   ws.on("message", (raw) => {
     let m; try { m = JSON.parse(raw.toString()); } catch { return; }
-    if (m.type === "listRooms") { send(ws, { type: "rooms", rooms: roomSummary() }); return; }
 
+    // Route chaos messages
+    if (m.type && m.type.startsWith("chaos_")) {
+      chaosServer.handleMessage(ws, m);
+      return;
+    }
+
+    // BlindZik messages
+    if (m.type === "listRooms") { send(ws, { type: "rooms", rooms: roomSummary() }); return; }
     if (m.type === "create") {
       if (ws.roomCode) leaveRoom(ws);
       const code = genCode(); const room = createRoomObj(code); rooms.set(code, room);
@@ -481,7 +506,7 @@ wss.on("connection", (ws, req) => {
     }
   });
 
-  ws.on("close", () => leaveRoom(ws));
+  ws.on("close", () => { leaveRoom(ws); chaosServer.leaveGame && chaosServer.leaveGame(ws); });
 });
 
 function leaveRoom(ws) {
@@ -506,6 +531,6 @@ function leaveRoom(ws) {
 /* ============================================================
    Start
    ============================================================ */
-db.load().then(() => {
+db.load().then(() => chaosDbModule.load()).then(() => {
   server.listen(PORT, () => console.log(`Suce Pute MiniGames en écoute sur le port ${PORT}`));
 }).catch(e => { console.error("DB init failed:", e); process.exit(1); });
